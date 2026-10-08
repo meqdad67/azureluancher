@@ -1,0 +1,125 @@
+name: Build Azure Mobile (Android)
+
+# Builds a rebranded copy of the open-source PojavLauncher (GPL-3.0) as "Azure Launcher" for Android.
+# Run it from the Actions tab (Run workflow), or push a tag like android-v1.0.0 to also publish a release.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['android-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Azure repo (for the icon)
+        uses: actions/checkout@v4
+        with:
+          path: azure
+
+      - name: Checkout PojavLauncher source
+        uses: actions/checkout@v4
+        with:
+          repository: PojavLauncherTeam/PojavLauncher
+          ref: v3_openjdk
+          submodules: recursive
+          path: pojav
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Get LTW (graphics layer)
+        run: |
+          cd pojav/app_pojavlauncher/libs
+          wget -q https://github.com/PojavLauncherTeam/LTW/releases/latest/download/ltw-release.aar
+
+      - name: Get JRE 8
+        uses: dawidd6/action-download-artifact@v9
+        with:
+          workflow: build.yml
+          path: pojav/app_pojavlauncher/src/main/assets/components/jre
+          workflow_conclusion: success
+          repo: PojavLauncherTeam/android-openjdk-build-multiarch
+          branch: buildjre8
+          name: jre8-pojav
+
+      - name: Get JRE 17
+        uses: dawidd6/action-download-artifact@v9
+        with:
+          workflow: build.yml
+          path: pojav/app_pojavlauncher/src/main/assets/components/jre-new
+          workflow_conclusion: success
+          repo: PojavLauncherTeam/android-openjdk-build-multiarch
+          branch: buildjre17-21
+          name: jre17-pojav
+
+      - name: Get JRE 21
+        uses: dawidd6/action-download-artifact@v9
+        with:
+          workflow: build.yml
+          path: pojav/app_pojavlauncher/src/main/assets/components/jre-21
+          workflow_conclusion: success
+          repo: PojavLauncherTeam/android-openjdk-build-multiarch
+          branch: buildjre17-21
+          name: jre21-pojav
+
+      - name: Rebrand as Azure Launcher
+        run: |
+          cd pojav
+          # name + package id
+          sed -i 's/applicationId "net.kdt.pojavlaunch"/applicationId "com.azure.launcher.mobile"/' app_pojavlauncher/build.gradle
+          find app_pojavlauncher/src/main/res -name strings.xml -exec sed -i -E 's#(<string name="app_name"[^>]*>)[^<]*(</string>)#\1Azure Launcher\2#' {} +
+          # icon: use the Azure icon for every density (drop the adaptive-icon xml so the PNGs are used)
+          pip install -q pillow
+          python3 - <<'PY'
+          from PIL import Image
+          src = Image.open('../azure/build/icon.png').convert('RGBA')
+          sizes = {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}
+          for d, s in sizes.items():
+              for n in ('ic_launcher.png', 'ic_launcher_round.png'):
+                  src.resize((s, s), Image.LANCZOS).save(f'app_pojavlauncher/src/main/res/mipmap-{d}/{n}')
+          PY
+          rm -f app_pojavlauncher/src/main/res/mipmap-anydpi-v26/ic_launcher.xml app_pojavlauncher/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11"
+
+      - name: Build JRE helper jars
+        run: |
+          cd pojav
+          ./scripts/languagelist_updater.sh
+          mkdir out
+          gradle :jre_lwjgl3glfw:build --no-daemon
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build APK
+        run: |
+          cd pojav
+          gradle :app_pojavlauncher:assembleDebug
+          mv app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk ../Azure-Launcher-Android.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Azure-Launcher-Android
+          path: Azure-Launcher-Android.apk
+
+      - name: Publish release (tags only)
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Azure-Launcher-Android.apk
+          prerelease: true   # keeps the desktop "latest release" link pointing at the desktop build
+          body: |
+            Azure Launcher for Android (Java Edition). Built from the open-source PojavLauncher (GPL-3.0), rebranded.
+            Install: download the APK, allow "install unknown apps", then open it.
