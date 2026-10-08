@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Azure Launcher</title>
+  <link rel="stylesheet" href="fonts.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="ambient" aria-hidden="true">
+    <div class="glow g1"></div><div class="glow g2"></div>
+    <svg class="waves" viewBox="0 0 1440 220" preserveAspectRatio="none">
+      <defs>
+        <path id="w" d="M0 110 C 120 60, 240 60, 360 110 S 600 160, 720 110 S 960 60, 1080 110 S 1320 160, 1440 110 V220 H0Z"/>
+      </defs>
+      <g class="wv wv1"><use href="#w" x="0"/><use href="#w" x="1440"/><use href="#w" x="2880"/></g>
+      <g class="wv wv2"><use href="#w" x="-300"/><use href="#w" x="1140"/><use href="#w" x="2580"/></g>
+    </svg>
+  </div>
+
+  <header class="titlebar">
+    <div class="brand"><img src="../build/icon.png" alt="" /><span>Azure Launcher</span></div>
+    <div class="wctl" id="wctl">
+      <button data-act="winMin" aria-label="Minimize"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button data-act="winMax" aria-label="Maximize"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>
+      <button data-act="winClose" class="close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav id="nav" aria-label="Main"></nav>
+    <main id="page"></main>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toasts" aria-live="polite"></div>
+
+  <script src="i18n.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
