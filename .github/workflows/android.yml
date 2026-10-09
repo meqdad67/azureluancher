@@ -1,7 +1,6 @@
 name: Build Azure Mobile (Android)
 
-# Builds a rebranded copy of the open-source PojavLauncher (GPL-3.0) as "Azure Launcher" for Android.
-# Run it from the Actions tab (Run workflow), or push a tag like android-v1.0.0 to also publish a release.
+# Builds a rebranded copy of the open-source PojavLauncher (GPL-3.0) as "Azure Launcher" for Android (64-bit ARM phones).
 on:
   workflow_dispatch:
   push:
@@ -9,6 +8,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  JRE_REPO: meqdad67/android-openjdk-build-multiarch
 
 jobs:
   apk:
@@ -38,43 +40,69 @@ jobs:
           cd pojav/app_pojavlauncher/libs
           wget -q https://github.com/PojavLauncherTeam/LTW/releases/latest/download/ltw-release.aar
 
-      - name: Get JRE 8
-        uses: dawidd6/action-download-artifact@v9
-        with:
-          workflow: build.yml
-          path: pojav/app_pojavlauncher/src/main/assets/components/jre
-          workflow_conclusion: success
-          repo: PojavLauncherTeam/android-openjdk-build-multiarch
-          branch: buildjre8
-          name: jre8-pojav
+      - name: JRE 8 (taken from the official PojavLauncher release APK)
+        run: |
+          wget -q -O official.apk https://github.com/PojavLauncherTeam/PojavLauncher/releases/download/v3.3.1.1/app-debug.apk
+          mkdir apk8 && unzip -q official.apk 'assets/components/jre/*' -d apk8
+          cp -r apk8/assets/components/jre pojav/app_pojavlauncher/src/main/assets/components/jre
+          ls pojav/app_pojavlauncher/src/main/assets/components/jre
 
-      - name: Get JRE 17
-        uses: dawidd6/action-download-artifact@v9
-        with:
-          workflow: build.yml
-          path: pojav/app_pojavlauncher/src/main/assets/components/jre-new
-          workflow_conclusion: success
-          repo: PojavLauncherTeam/android-openjdk-build-multiarch
-          branch: buildjre17-21
-          name: jre17-pojav
+      - name: JRE 21 (+ 17 if available) arm64 builds from our own fork
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for id in $(gh run list -R "$JRE_REPO" --workflow build.yml --branch buildjre17-21 --limit 15 --json databaseId --jq '.[].databaseId'); do
+            if gh run download "$id" -R "$JRE_REPO" -n jre21-aarch64 -D jre-raw/21; then
+              echo "Using run $id"
+              gh run download "$id" -R "$JRE_REPO" -n jre17-aarch64 -D jre-raw/17 || echo "No Java 17 build in this run"
+              break
+            fi
+            rm -rf jre-raw
+          done
+          test -n "$(find jre-raw/21 -name 'jre21-arm64-*release.tar.xz')"
+          if [ -z "$(find jre-raw/17 -name 'jre17-arm64-*release.tar.xz' 2>/dev/null)" ]; then
+            echo "::warning::Java 17 build not available, using Java 21 in the Java 17 slot"
+            mkdir -p jre-raw/17
+            cp "$(find jre-raw/21 -name 'jre21-arm64-*release.tar.xz' | head -1)" jre-raw/17/jre17-arm64-fallback-release.tar.xz
+          fi
+          find jre-raw -name '*.tar.xz'
 
-      - name: Get JRE 21
-        uses: dawidd6/action-download-artifact@v9
-        with:
-          workflow: build.yml
-          path: pojav/app_pojavlauncher/src/main/assets/components/jre-21
-          workflow_conclusion: success
-          repo: PojavLauncherTeam/android-openjdk-build-multiarch
-          branch: buildjre17-21
-          name: jre21-pojav
+      - name: Repack JRE 17 + 21 into the format PojavLauncher expects
+        run: |
+          set -e
+          ASSETS="$PWD/pojav/app_pojavlauncher/src/main/assets/components"
+          repack() {
+            V=$1; OUT="$ASSETS/$2"
+            TARBALL=$(find "$PWD/jre-raw" -name "jre$V-arm64-*release.tar.xz" | head -1)
+            W="$PWD/work$V"; W1="$PWD/work1_$V"
+            rm -rf "$W" "$W1"; mkdir -p "$W" "$W1" "$OUT"
+            # universal part (architecture independent files)
+            cd "$W"; tar xf "$TARBALL"
+            rm -rf bin lib/server; rm -f lib/jexec lib/jvm.cfg release
+            find ./ -name '*.so' -execdir rm {} \;
+            XZ_OPT="-6 --threads=0" tar cJf "$OUT/universal.tar.xz" *
+            rm -rf "$W"/*
+            # arm64 part
+            tar xf "$TARBALL"
+            mv bin "$W1"/; mkdir -p "$W1/lib"
+            mv lib/jexec "$W1/lib/"; mv lib/jvm.cfg "$W1/lib/"
+            if [ -d lib/server ]; then mv lib/server "$W1/lib/"; fi
+            if [ -d lib/client ]; then mv lib/client "$W1/lib/"; fi
+            find ./ -name '*.so' -execdir mv {} "$W1"/lib/{} \;
+            mv release "$W1/release"
+            XZ_OPT="-6 --threads=0" tar cJf "$OUT/bin-arm64.tar.xz" -C "$W1" .
+            echo "$GITHUB_SHA" > "$OUT/version"
+            cd "$GITHUB_WORKSPACE"
+          }
+          repack 17 jre-new
+          repack 21 jre-21
+          ls -la "$ASSETS/jre-new" "$ASSETS/jre-21"
 
       - name: Rebrand as Azure Launcher
         run: |
           cd pojav
-          # name + package id
           sed -i 's/applicationId "net.kdt.pojavlaunch"/applicationId "com.azure.launcher.mobile"/' app_pojavlauncher/build.gradle
           find app_pojavlauncher/src/main/res -name strings.xml -exec sed -i -E 's#(<string name="app_name"[^>]*>)[^<]*(</string>)#\1Azure Launcher\2#' {} +
-          # icon: use the Azure icon for every density (drop the adaptive-icon xml so the PNGs are used)
           pip install -q pillow
           python3 - <<'PY'
           from PIL import Image
@@ -119,7 +147,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: Azure-Launcher-Android.apk
-          prerelease: true   # keeps the desktop "latest release" link pointing at the desktop build
+          prerelease: true
           body: |
-            Azure Launcher for Android (Java Edition). Built from the open-source PojavLauncher (GPL-3.0), rebranded.
+            Azure Launcher for Android (Java Edition, 64-bit ARM phones). Built from the open-source PojavLauncher (GPL-3.0), rebranded.
             Install: download the APK, allow "install unknown apps", then open it.
