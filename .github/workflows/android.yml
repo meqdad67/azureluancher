@@ -24,8 +24,8 @@ jobs:
       - name: Checkout PojavLauncher source
         uses: actions/checkout@v4
         with:
-          repository: PojavLauncherTeam/PojavLauncher
-          ref: v3_openjdk
+          repository: meqdad67/PojavLauncher
+          ref: patch-2
           submodules: recursive
           path: pojav
 
