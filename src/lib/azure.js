@@ -1,11 +1,12 @@
 /** Azure server status (Server List Ping) + launcher heartbeat to the AzureLauncherLink plugin. */
 const net = require('net');
+const dgram = require('dgram');
 const dns = require('dns').promises;
 const crypto = require('crypto');
 const store = require('./store');
 const { UA } = require('./net');
 
-const SERVER = { name: 'AzureSMP', host: 'AzureSMP.asrv.qzz.io', port: 25565 };
+const SERVER = { name: 'AzureSMP', host: 'AzureSMP.asrv.qzz.io', port: 20012 };
 
 const varint = (n) => { const b = []; do { let x = n & 0x7f; n >>>= 7; if (n) x |= 0x80; b.push(x); } while (n); return Buffer.from(b); };
 const readVarint = (buf, off) => { let r = 0, s = 0, b; do { if (off >= buf.length) return null; b = buf[off++]; r |= (b & 0x7f) << s; s += 7; } while (b & 0x80); return [r, off]; };
@@ -54,19 +55,42 @@ function installId() {
 }
 const base = () => (store.get().settings.apiUrl || `http://${SERVER.host}:8765`).replace(/\/$/, '');
 
+/** Heartbeat over UDP to the SAME port as the Minecraft server (no extra port needed on the host). */
+function udpBeat(q, timeout = 3000) {
+  return new Promise((resolve) => {
+    let timer, sock, done = false;
+    const fin = (v) => { if (done) return; done = true; clearTimeout(timer); try { sock && sock.close(); } catch {} resolve(v); };
+    timer = setTimeout(() => fin(null), timeout);
+    target(SERVER.host, SERVER.port).then((t) => {
+      if (done) return;
+      sock = dgram.createSocket('udp4');
+      sock.on('error', () => fin(null));
+      sock.on('message', (m) => { try { const j = JSON.parse(m.toString()); fin(typeof j.open === 'number' ? j : null); } catch { fin(null); } });
+      const msg = Buffer.from(new URLSearchParams({ ...q, key: store.get().settings.apiKey || '' }).toString());
+      sock.send(msg, t.port, t.host, (err) => { if (err) fin(null); });
+    }).catch(() => fin(null));
+  });
+}
+
+/** Optional HTTP fallback (only used when "apiUrl" is set in settings). */
+async function httpBeat(q, s) {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    const r = await fetch(`${base()}/azure/hb?${new URLSearchParams(q)}`, { method: 'POST', signal: ctrl.signal, headers: { 'User-Agent': UA, 'X-Azure-Key': s.apiKey || '' } });
+    return r.ok ? await r.json() : null;
+  } catch { return null; } finally { clearTimeout(to); }
+}
+
 async function beat() {
   const s = store.get().settings;
   if (!s.shareWithServer) { lastStats = null; return null; }
   const q = { id: installId() };
   if (playingAcc) Object.assign(q, { playing: '1', name: playingAcc.name, uuid: playingAcc.uuid });
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 4000);
-  try {
-    const r = await fetch(`${base()}/azure/hb?${new URLSearchParams(q)}`, { method: 'POST', signal: ctrl.signal, headers: { 'User-Agent': UA, 'X-Azure-Key': s.apiKey || '' } });
-    lastStats = r.ok ? await r.json() : null;
-  } catch { lastStats = null; }
-  clearTimeout(to);
-  return lastStats;
+  let r = await udpBeat(q);
+  if (!r && s.apiUrl) r = await httpBeat(q, s);
+  lastStats = r;
+  return r;
 }
 
 function startHeartbeat() { if (timer) return; beat(); timer = setInterval(beat, 30000); }
@@ -77,4 +101,4 @@ async function status() {
   return { name: SERVER.name, host: SERVER.host, server: p.status === 'fulfilled' ? p.value : { online: false }, launcher: lastStats };
 }
 
-module.exports = { SERVER, status, startHeartbeat, playing };
+module.exports = { SERVER, status, startHeartbeat, playing, _udpBeat: udpBeat };

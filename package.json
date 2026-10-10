@@ -1,7 +1,7 @@
 {
   "name": "azure-launcher",
   "productName": "Azure Launcher",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Azure Launcher - a modern Minecraft launcher (Arabic / English)",
   "main": "src/main.js",
   "author": "Azure",
