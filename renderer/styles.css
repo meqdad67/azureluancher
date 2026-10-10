@@ -220,3 +220,11 @@ input[type=range]::-webkit-slider-thumb{appearance:none;width:20px;height:20px;b
 .bar{height:8px;border-radius:8px;background:rgba(130,175,255,.18);overflow:hidden;margin-top:8px}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--az),var(--cyan));transition:width .3s}
 .banner{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 18px;margin-bottom:18px;border-radius:var(--r-md);background:var(--az-soft);border:1px solid var(--az-line)}
+
+/* discord button (top, centered) */
+.dc{-webkit-app-region:no-drag;display:inline-flex;align-items:center;gap:9px;height:30px;padding:0 16px 0 12px;border-radius:99px;background:#5865F2;color:#fff;font-weight:800;font-size:14px;position:relative;box-shadow:0 6px 18px -6px #5865F2;transition:filter .2s,transform .15s;direction:inherit}
+.dc:hover{filter:brightness(1.12);transform:translateY(-1px)}
+.dc svg{width:18px;height:18px;fill:#fff;stroke:none}
+.dc-dot{position:absolute;inset-block-start:-3px;inset-inline-end:-2px;width:11px;height:11px;border-radius:50%;background:#ff4d5e;border:2px solid var(--abyss);animation:dcpulse 1.6s ease-in-out infinite}
+.dc.seen .dc-dot{display:none}
+@keyframes dcpulse{50%{transform:scale(1.45)}}

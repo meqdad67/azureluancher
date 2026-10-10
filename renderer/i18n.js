@@ -41,6 +41,7 @@ window.I18N = {
     upd_skip: 'تخطّي', upd_deadline: 'تقدر تتخطاه، وبعد {h} ساعة يصير إلزامي.', upd_installing: 'جاري التثبيت وإعادة التشغيل…', upd_wait_game: 'التحديث جاهز وراح يتثبت لما تقفل اللعبة.',
     upd_required_title: 'تحديث إلزامي', upd_required_sub: 'اللانشر لازم يتحدث إلى {v}، وبيتثبت تلقائياً بدون ما تسوي شي.', upd_error: 'تعذر التحديث، تأكد من الإنترنت وجرّب مرة ثانية.', upd_retry: 'إعادة المحاولة', upd_manual: 'تحميل يدوي',
     e_update_required: 'التحديث صار إلزامي ولا يمكن تخطيه',
+    discord_join: 'انضم للديسكورد',
     game_closed: 'أُغلقت اللعبة (الكود {code})',
   },
   en: {
@@ -85,6 +86,7 @@ window.I18N = {
     upd_skip: 'Skip', upd_deadline: 'You can skip it; after {h} h it becomes mandatory.', upd_installing: 'Installing and restarting…', upd_wait_game: 'The update is ready and will install when you close the game.',
     upd_required_title: 'Required update', upd_required_sub: 'The launcher must update to {v}. It installs automatically, nothing to do.', upd_error: 'Update failed. Check your connection and try again.', upd_retry: 'Try again', upd_manual: 'Manual download',
     e_update_required: 'This update is mandatory and cannot be skipped',
+    discord_join: 'Join our Discord',
     game_closed: 'Game closed (code {code})',
   },
 };

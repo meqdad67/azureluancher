@@ -32,6 +32,8 @@ const acc = () => S.st.accounts.find((a) => a.id === S.st.selectedAccount);
 const stateOf = (id) => S.states[id] || (S.st.running.includes(id) ? 'running' : 'idle');
 
 function applyTheme() {
+  const dc = $('#dcText'); if (dc) dc.textContent = t('discord_join');
+  try { if (localStorage.getItem('az-dc')) { const b = $('.dc'); if (b) b.classList.add('seen'); } } catch {}
   const s = S.st.settings;
   document.documentElement.lang = s.language; document.documentElement.dir = s.language === 'ar' ? 'rtl' : 'ltr';
   document.documentElement.style.setProperty('--az', s.accent);
@@ -295,6 +297,7 @@ async function afterPack(inst) { S.st = await api('state:get'); packProgress(nul
 
 /* ---------------- actions ---------------- */
 const A = {
+  discord: () => { api('open:url', 'https://discord.gg/25A2MSvBnH'); try { localStorage.setItem('az-dc', '1'); } catch {} const b = $('.dc'); if (b) b.classList.add('seen'); },
   nav: (el) => { S.page = el.dataset.p; render(); },
   winMin: () => api('win:min'), winMax: () => api('win:max'), winClose: () => api('win:close'),
   newInst: () => openInstModal(), editInst: (el, e) => { e.stopPropagation(); openInstModal(el.dataset.id); },
