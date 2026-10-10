@@ -143,4 +143,17 @@ function remove(inst, type, file) {
   writeMeta(inst, m);
 }
 
-module.exports = { search, install, list, toggle, remove, TYPE_DIR };
+function addLocal(inst, type, files) {
+  const dir = dirFor(inst, type);
+  fs.mkdirSync(dir, { recursive: true });
+  let n = 0;
+  for (const f of files) {
+    const name = path.basename(f);
+    fs.copyFileSync(f, path.join(dir, name));
+    remember(inst, type, name, { title: name.replace(/\.(jar|zip)$/i, ''), icon: '', source: 'local', version: '' });
+    n++;
+  }
+  return n;
+}
+
+module.exports = { search, install, list, toggle, remove, addLocal, TYPE_DIR };

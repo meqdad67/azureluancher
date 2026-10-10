@@ -1,0 +1,7 @@
+port: 8765                 # open this TCP port on your host so the launcher can reach it
+key: ""                    # optional shared key (also set "apiKey" in launcher settings); not real security, the launcher is open source
+open-ttl-seconds: 90       # a launcher counts as "open" if it sent a heartbeat in the last N seconds
+vip-ttl-seconds: 120       # VIP needs a "playing" heartbeat from the launcher this recent
+require-same-ip: true      # set false if players connect through a tunnel/proxy that hides their real IP
+grant-command: "lp user %player% parent add vip"
+revoke-command: "lp user %player% parent remove vip"

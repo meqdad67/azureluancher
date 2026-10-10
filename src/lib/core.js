@@ -190,7 +190,7 @@ function expand(list, vars, features) {
   return out;
 }
 
-function buildCommand({ prepared, versionId, versionType, gameDir, auth, ramMax, ramMin, extraJvm, window }) {
+function buildCommand({ prepared, versionId, versionType, gameDir, auth, ramMax, ramMin, extraJvm, extraGame, window }) {
   const { v, classpath, nativesDir, assetsRoot, gameAssets, logArg } = prepared;
   const features = { has_custom_resolution: !!(window && window.width) };
   const vars = {
@@ -229,6 +229,7 @@ function buildCommand({ prepared, versionId, versionType, gameDir, auth, ramMax,
     if (window && window.width) game.push('--width', String(window.width), '--height', String(window.height));
   }
   if (window && window.fullscreen) game.push('--fullscreen');
+  if (extraGame && extraGame.length) game.push(...extraGame);
   if (logArg) jvm.push(logArg);
 
   const mem = [`-Xmx${ramMax}M`, `-Xms${ramMin}M`];

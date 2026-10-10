@@ -1,0 +1,7 @@
+name: AzureLauncherLink
+version: 1.0.0
+main: com.azure.launcherlink.AzureLauncherLink
+# use the same api-version as your other plugins if the server complains
+api-version: '1.21'
+author: Azure
+description: Receives heartbeats from Azure Launcher, shows how many use it, and gives VIP while a launcher user is playing.

@@ -7,11 +7,19 @@ const core = require('./core');
 const { javaMajorFor } = require('./versions');
 const { ensureJava } = require('./java');
 const { ensureLoader } = require('./loaders');
+const azure = require('./azure');
+
+function joinArgs(mc) {
+  const m = /^1\.(\d+)/.exec(mc);
+  const minor = m ? parseInt(m[1], 10) : 99;
+  const { host, port } = azure.SERVER;
+  return minor >= 20 ? ['--quickPlayMultiplayer', `${host}:${port}`] : ['--server', host, '--port', String(port)];
+}
 
 const running = new Map(); // instanceId -> { proc, startedAt }
 const isRunning = (id) => running.has(id);
 
-async function launch(inst, emit) {
+async function launch(inst, emit, opts = {}) {
   if (running.has(inst.id) || inst.preparing) throw new Error('already_running');
   const d = store.get();
   const s = d.settings;
@@ -49,7 +57,7 @@ async function launch(inst, emit) {
     const extraJvm = [s.jvmArgs, inst.jvmArgs].filter(Boolean).join(' ').split(/\s+/).filter(Boolean);
     const args = core.buildCommand({
       prepared, versionId, versionType: inst.mcType === 'snapshot' ? 'snapshot' : 'release',
-      gameDir, auth, ramMax: maxRam, ramMin: minRam, extraJvm,
+      gameDir, auth, ramMax: maxRam, ramMin: minRam, extraJvm, extraGame: opts.join ? joinArgs(inst.mcVersion) : [],
       window: s.fullscreen ? { fullscreen: true } : { width: s.width, height: s.height },
     });
 
@@ -60,6 +68,7 @@ async function launch(inst, emit) {
     proc.stdout.on('data', feed);
     proc.stderr.on('data', feed);
     running.set(inst.id, { proc, startedAt: Date.now() });
+    azure.playing(acc);
     inst.preparing = false;
     inst.lastPlayed = Date.now();
     store.save();
@@ -68,6 +77,7 @@ async function launch(inst, emit) {
     proc.on('close', (code) => {
       const r = running.get(inst.id);
       running.delete(inst.id);
+      if (!running.size) azure.playing(null);
       if (r) { inst.playTime = (inst.playTime || 0) + Math.round((Date.now() - r.startedAt) / 1000); store.save(); }
       log(`[Azure] exit code ${code}`, code === 0 ? 'info' : 'error');
       state('idle');
