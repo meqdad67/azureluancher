@@ -4,6 +4,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   release:
@@ -28,5 +29,9 @@ jobs:
           git commit -m "v1.1.7 azure client + new ui + performance + anti-freeze"
           git pull --rebase
           git push
-          git tag v1.1.7
-          git push origin v1.1.7
+          git tag -f v1.1.7
+          git push -f origin v1.1.7
+      - name: Trigger build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run build.yml --ref v1.1.7
