@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const store = require('./store');
 const { UA } = require('./net');
 
-const SERVER = { name: 'AzureSMP', host: 'AzureSMP.asrv.qzz.io', port: 20012 };
+const SERVER = { name: 'AzureSMP', host: 'AzureSMP.asrv.qzz.io', port: 20012, apiPort: 20903 }; // port = Minecraft, apiPort = AzureLauncherLink (UDP)
 
 const varint = (n) => { const b = []; do { let x = n & 0x7f; n >>>= 7; if (n) x |= 0x80; b.push(x); } while (n); return Buffer.from(b); };
 const readVarint = (buf, off) => { let r = 0, s = 0, b; do { if (off >= buf.length) return null; b = buf[off++]; r |= (b & 0x7f) << s; s += 7; } while (b & 0x80); return [r, off]; };
@@ -65,9 +65,9 @@ function udpBeat(q, timeout = 3000) {
       if (done) return;
       sock = dgram.createSocket('udp4');
       sock.on('error', () => fin(null));
-      sock.on('message', (m) => { try { const j = JSON.parse(m.toString()); fin(typeof j.open === 'number' ? j : null); } catch { fin(null); } });
+      sock.on('message', (m) => { try { const j = JSON.parse(m.toString()); fin(j && typeof j === 'object' ? j : null); } catch { fin(null); } });
       const msg = Buffer.from(new URLSearchParams({ ...q, key: store.get().settings.apiKey || '' }).toString());
-      sock.send(msg, t.port, t.host, (err) => { if (err) fin(null); });
+      sock.send(msg, SERVER.apiPort, t.host, (err) => { if (err) fin(null); });
     }).catch(() => fin(null));
   });
 }
@@ -88,17 +88,74 @@ async function beat() {
   const q = { id: installId() };
   if (playingAcc) Object.assign(q, { playing: '1', name: playingAcc.name, uuid: playingAcc.uuid });
   let r = await udpBeat(q);
+  if (r && typeof r.open !== 'number') r = null;
+  if (r && r.tok) lastTok = r.tok;
   if (!r && s.apiUrl) r = await httpBeat(q, s);
   lastStats = r;
   return r;
 }
 
+/* ---- shared skin library (stored by the AzureLauncherLink plugin, over the same UDP port) ---- */
+let lastTok = '';
+/** One skin-library request: carries the anti-spoofing token from the last heartbeat, retries a few times. */
+async function sc(q, tries = 3) {
+  for (let i = 0; i < tries; i++) {
+    if (!lastTok) await beat();
+    if (!lastTok) continue;
+    const r = await udpBeat({ ...q, id: installId(), tok: lastTok }, 2500);
+    if (r && r.err === 'tok') { lastTok = ''; continue; }
+    if (r) return r;
+  }
+  return null;
+}
+
+async function skinList() {
+  const out = [];
+  for (let p = 0; p < 30; p++) {
+    const r = await sc({ cmd: 'skins', p });
+    if (!r || !Array.isArray(r.list)) return p === 0 ? null : out;
+    out.push(...r.list);
+    if (!r.more) return out;
+  }
+  return out;
+}
+
+async function skinFetch(name, size) {
+  const chunk = 600, n = Math.ceil(size / chunk), parts = [];
+  const get = async (i) => {
+    const r = await sc({ cmd: 'skinget', n: name, o: i * chunk });
+    if (!r || typeof r.d !== 'string') throw new Error('download failed');
+    parts[i] = Buffer.from(r.d, 'base64url');
+  };
+  for (let i = 0; i < n; i += 4) await Promise.all(Array.from({ length: Math.min(4, n - i) }, (_, k) => get(i + k)));
+  return Buffer.concat(parts);
+}
+
+/** Returns 'ok' or an error code ('owner', 'size', 'timeout', ...). */
+async function skinUpload(name, buf) {
+  const chunk = 500;
+  let last = null;
+  for (let o = 0; o < buf.length; o += chunk) {
+    last = await sc({ cmd: 'skinput', n: name, o, t: buf.length, d: buf.subarray(o, o + chunk).toString('base64url') });
+    if (!last) return 'timeout';
+    if (last.err) return last.err;
+  }
+  return last && last.done ? 'ok' : 'incomplete';
+}
+
+async function skinDelete(name) { const r = await sc({ cmd: 'skindel', n: name }); return !!(r && r.ok); }
+
 function startHeartbeat() { if (timer) return; beat(); timer = setInterval(beat, 30000); }
 function playing(acc) { playingAcc = acc ? { name: acc.name, uuid: acc.uuid } : null; beat(); }
 
+let stCache = null, stAt = 0;
 async function status() {
+  if (stCache && Date.now() - stAt < 20000) return { ...stCache, launcher: lastStats }; // do not ping on every page change
   const [p] = await Promise.allSettled([ping()]);
-  return { name: SERVER.name, host: SERVER.host, server: p.status === 'fulfilled' ? p.value : { online: false }, launcher: lastStats };
+  stCache = { name: SERVER.name, host: SERVER.host, server: p.status === 'fulfilled' ? p.value : { online: false } };
+  stAt = Date.now();
+  return { ...stCache, launcher: lastStats };
 }
+const reachable = () => lastStats !== null;
 
-module.exports = { SERVER, status, startHeartbeat, playing, _udpBeat: udpBeat };
+module.exports = { SERVER, reachable, status, startHeartbeat, playing, skinList, skinFetch, skinUpload, skinDelete, _udpBeat: udpBeat };

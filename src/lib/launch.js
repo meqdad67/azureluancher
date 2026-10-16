@@ -1,5 +1,30 @@
 const fs = require('fs');
 const { spawn } = require('child_process');
+const os = require('os');
+const { execFile } = require('child_process');
+
+// G1 tuned for low frame-time spikes. Skipped when the user already picked another GC.
+const FAST_JVM = ['-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled', '-XX:MaxGCPauseMillis=50', '-XX:+UnlockExperimentalVMOptions', '-XX:+DisableExplicitGC',
+  '-XX:G1NewSizePercent=30', '-XX:G1MaxNewSizePercent=40', '-XX:G1HeapRegionSize=16M', '-XX:G1ReservePercent=20', '-XX:InitiatingHeapOccupancyPercent=15', '-XX:+PerfDisableSharedMem'];
+const GC_FLAG = /UseZGC|UseParallelGC|UseSerialGC|UseShenandoahGC|UseG1GC|UseConcMarkSweepGC/;
+
+// Lightest sensible graphics, applied ONCE per instance (so later in-game changes stick).
+const LIGHT = { renderDistance: '6', simulationDistance: '5', graphicsMode: '0', fancyGraphics: 'false', particles: '2', entityShadows: 'false', biomeBlendRadius: '0', mipmapLevels: '0', enableVsync: 'false', entityDistanceScaling: '0.5', maxFps: '260' };
+function applyLightOptions(gameDir) {
+  const f = require('path').join(gameDir, 'options.txt');
+  let lines = [];
+  try { lines = fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(Boolean); } catch {}
+  const seen = new Set();
+  lines = lines.map((l) => { const k = l.split(':')[0]; if (k in LIGHT) { seen.add(k); return `${k}:${LIGHT[k]}`; } return l; });
+  for (const k of Object.keys(LIGHT)) if (!seen.has(k)) lines.push(`${k}:${LIGHT[k]}`);
+  fs.writeFileSync(f, lines.join('\n') + '\n');
+}
+
+// Windows: ask for the high-performance GPU for this javaw.exe (same as Settings > Graphics).
+function preferDedicatedGpu(exe) {
+  if (process.platform !== 'win32' || !exe) return;
+  try { execFile('reg', ['add', 'HKCU\\Software\\Microsoft\\DirectX\\UserGpuPreferences', '/v', exe, '/t', 'REG_SZ', '/d', 'GpuPreference=2;', '/f'], { windowsHide: true }, () => {}); } catch {}
+}
 const P = require('./paths');
 const store = require('./store');
 const accounts = require('./accounts');
@@ -8,6 +33,7 @@ const { javaMajorFor } = require('./versions');
 const { ensureJava } = require('./java');
 const { ensureLoader } = require('./loaders');
 const azure = require('./azure');
+const skins = require('./skins');
 
 function joinArgs(mc) {
   const m = /^1\.(\d+)/.exec(mc);
@@ -43,6 +69,7 @@ async function launch(inst, emit, opts = {}) {
 
     progress({ key: 'auth' }, 0.12);
     const auth = await accounts.getAuth(acc);
+    try { await skins.prepare(inst, acc, (m) => log(m)); } catch (e) { log(`[Azure] skin step failed: ${e.message}`); }
 
     const gameDir = P.instanceDir(inst.id);
     fs.mkdirSync(gameDir, { recursive: true });
@@ -55,19 +82,24 @@ async function launch(inst, emit, opts = {}) {
     const maxRam = inst.ram && inst.ram > 0 ? inst.ram : s.maxRam;
     const minRam = Math.min(s.minRam || 512, maxRam);
     const extraJvm = [s.jvmArgs, inst.jvmArgs].filter(Boolean).join(' ').split(/\s+/).filter(Boolean);
+    const useFast = s.optimizedJvm !== false && !extraJvm.some((a) => GC_FLAG.test(a));
+    if (s.highPerfGpu !== false) preferDedicatedGpu(java.javaw);
+    if (s.ultraLight !== false && !inst.lightApplied) { try { applyLightOptions(gameDir); inst.lightApplied = true; store.save(); } catch (e) { log(`[Azure] light options skipped: ${e.message}`); } }
     const args = core.buildCommand({
       prepared, versionId, versionType: inst.mcType === 'snapshot' ? 'snapshot' : 'release',
-      gameDir, auth, ramMax: maxRam, ramMin: minRam, extraJvm, extraGame: opts.join ? joinArgs(inst.mcVersion) : [],
+      gameDir, auth, ramMax: maxRam, ramMin: minRam, extraJvm: useFast ? [...FAST_JVM, ...extraJvm] : extraJvm, extraGame: opts.join ? joinArgs(inst.mcVersion) : [],
       window: s.fullscreen ? { fullscreen: true } : { width: s.width, height: s.height },
     });
 
     progress({ key: 'launching' }, 0.97);
     log(`[Azure] ${java.javaw} (-Xmx${maxRam}M) ${versionId}`);
     const proc = spawn(java.javaw, args, { cwd: gameDir, detached: true });
-    const feed = (b) => b.toString().split(/\r?\n/).forEach((l) => l && log(l, 'game'));
+    let badJvm = false;
+    const feed = (b) => b.toString().split(/\r?\n/).forEach((l) => { if (!l) return; if (useFast && /Unrecognized VM option|Could not create the Java Virtual Machine|Unrecognized option/.test(l)) badJvm = true; log(l, 'game'); });
     proc.stdout.on('data', feed);
     proc.stderr.on('data', feed);
     running.set(inst.id, { proc, startedAt: Date.now() });
+    try { if (proc.pid) os.setPriority(proc.pid, os.constants.priority.PRIORITY_ABOVE_NORMAL); } catch {} // game gets CPU before background apps
     azure.playing(acc);
     inst.preparing = false;
     inst.lastPlayed = Date.now();
@@ -78,7 +110,17 @@ async function launch(inst, emit, opts = {}) {
       const r = running.get(inst.id);
       running.delete(inst.id);
       if (!running.size) azure.playing(null);
-      if (r) { inst.playTime = (inst.playTime || 0) + Math.round((Date.now() - r.startedAt) / 1000); store.save(); }
+      if (r) {
+        const secs = Math.round((Date.now() - r.startedAt) / 1000);
+        inst.playTime = (inst.playTime || 0) + secs;
+        const d = store.get(); d.playLog = d.playLog || {};
+        const k = new Date().toLocaleDateString('en-CA');
+        const e = d.playLog[k] || { s: 0, n: 0, max: 0 };
+        e.s += secs; e.n += 1; e.max = Math.max(e.max, secs); d.playLog[k] = e;
+        for (const x of Object.keys(d.playLog).sort().slice(0, -60)) delete d.playLog[x]; // keep ~60 days
+        store.save();
+      }
+      if (badJvm) { s.optimizedJvm = false; store.save(); log('[Azure] optimized JVM flags are not supported by this Java: turned them off, launch again', 'error'); }
       log(`[Azure] exit code ${code}`, code === 0 ? 'info' : 'error');
       state('idle');
       emit('closed', { id: inst.id, code });

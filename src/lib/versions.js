@@ -45,6 +45,10 @@ function neoPrefix(mc) {
 
 async function loaderVersions(loader, mc) {
   if (loader === 'vanilla') return [];
+  if (loader === 'azure') {
+    // Azure Client bundles one mod build: only MC 26.1 with its pinned Fabric loader is allowed.
+    return mc === '26.1' ? [{ id: '0.19.5', stable: true }] : [];
+  }
   if (loader === 'fabric') {
     const l = await getJSON(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(mc)}`);
     return l.map((x) => ({ id: x.loader.version, stable: !!x.loader.stable }));

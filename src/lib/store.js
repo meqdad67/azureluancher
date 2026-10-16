@@ -19,6 +19,13 @@ const defaults = () => ({
     height: 720,
     fullscreen: false,
     shareWithServer: true,
+    seeLauncherSkins: true,
+    perfMode: true,
+    closeToTray: false,
+    suspendInGame: true,
+    optimizedJvm: true,
+    highPerfGpu: true,
+    ultraLight: true,
     apiUrl: '',
     apiKey: '',
   },
@@ -26,6 +33,7 @@ const defaults = () => ({
   selectedAccount: null,
   instances: [],
   selectedInstance: null,
+  playLog: {},
 });
 
 let data = defaults();
@@ -39,12 +47,12 @@ function save() {
   clearTimeout(timer);
   timer = setTimeout(() => {
     const tmp = P.data + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.writeFileSync(tmp, JSON.stringify(data));
     fs.renameSync(tmp, P.data);
   }, 150);
 }
 function flush() {
   clearTimeout(timer);
-  fs.writeFileSync(P.data, JSON.stringify(data, null, 2));
+  fs.writeFileSync(P.data, JSON.stringify(data));
 }
 module.exports = { get: () => data, save, flush, totalMB };

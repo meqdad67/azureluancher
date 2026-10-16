@@ -50,6 +50,13 @@ async function dl(url, dest, tries = 3) {
   throw err;
 }
 const have = (dest, size) => fs.existsSync(dest) && (!size || fs.statSync(dest).size === size);
+// async version: checking thousands of asset files with sync calls froze the launcher (worse with antivirus scanning)
+const haveA = async (dest, size) => { try { const st = await fs.promises.stat(dest); return !size || st.size === size; } catch { return false; } };
+async function missingOf(items, get) {
+  const miss = new Array(items.length);
+  await pool(items, 32, async (it, i) => { const [d, sz] = get(it); miss[i] = !(await haveA(d, sz)); });
+  return items.filter((_, i) => miss[i]);
+}
 
 /* ---------- version resolution ---------- */
 async function loadVersion(id) {
@@ -131,7 +138,7 @@ async function prepare(versionId, gameDir, onProgress = () => {}) {
 
   // libraries + jar
   let done = 0;
-  const todo = jobs.filter((j) => !have(j.dest, j.size));
+  const todo = await missingOf(jobs, (j) => [j.dest, j.size]);
   onProgress({ key: 'dl_libraries', task: 0, total: todo.length });
   await pool(todo, 12, async (j) => {
     await dl(j.url, j.dest);
@@ -141,10 +148,10 @@ async function prepare(versionId, gameDir, onProgress = () => {}) {
   // assets
   const assetsRoot = path.join(P.mc, 'assets');
   const idxFile = path.join(assetsRoot, 'indexes', `${v.assetIndex.id}.json`);
-  if (!have(idxFile, v.assetIndex.size)) await dl(v.assetIndex.url, idxFile);
+  if (!(await haveA(idxFile, v.assetIndex.size))) await dl(v.assetIndex.url, idxFile);
   const index = JSON.parse(fs.readFileSync(idxFile, 'utf8'));
   const objs = Object.entries(index.objects || {});
-  const missing = objs.filter(([, o]) => !have(path.join(assetsRoot, 'objects', o.hash.slice(0, 2), o.hash), o.size));
+  const missing = await missingOf(objs, ([, o]) => [path.join(assetsRoot, 'objects', o.hash.slice(0, 2), o.hash), o.size]);
   done = 0;
   onProgress({ key: 'dl_assets', task: 0, total: missing.length });
   await pool(missing, 24, async ([, o]) => {
@@ -153,16 +160,14 @@ async function prepare(versionId, gameDir, onProgress = () => {}) {
     if (++done % 25 === 0 || done === missing.length) onProgress({ key: 'dl_assets', task: done, total: missing.length });
   });
   let gameAssets = assetsRoot;
-  const copyTo = (dir) => {
-    for (const [name, o] of objs) {
-      const dest = path.join(dir, name);
-      if (fs.existsSync(dest)) continue;
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.copyFileSync(path.join(assetsRoot, 'objects', o.hash.slice(0, 2), o.hash), dest);
-    }
-  };
-  if (index.virtual) { gameAssets = path.join(assetsRoot, 'virtual', v.assetIndex.id); copyTo(gameAssets); }
-  if (index.map_to_resources) { gameAssets = path.join(gameDir, 'resources'); copyTo(gameAssets); }
+  const copyTo = (dir) => pool(objs, 16, async ([name, o]) => {
+    const dest = path.join(dir, name);
+    if (await haveA(dest)) return;
+    await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+    await fs.promises.copyFile(path.join(assetsRoot, 'objects', o.hash.slice(0, 2), o.hash), dest);
+  });
+  if (index.virtual) { gameAssets = path.join(assetsRoot, 'virtual', v.assetIndex.id); await copyTo(gameAssets); }
+  if (index.map_to_resources) { gameAssets = path.join(gameDir, 'resources'); await copyTo(gameAssets); }
 
   // natives
   const nativesDir = path.join(P.mc, 'versions', versionId, 'natives');

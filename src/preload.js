@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const EVENTS = ['log', 'progress', 'state', 'started', 'closed', 'launch-error', 'mod-status', 'win-state', 'pack-progress', 'update'];
+const EVENTS = ['log', 'progress', 'state', 'started', 'closed', 'launch-error', 'mod-status', 'win-state', 'pack-progress', 'update', 'logs'];
 contextBridge.exposeInMainWorld('azure', {
   invoke: async (channel, ...args) => {
     const r = await ipcRenderer.invoke(channel, ...args);

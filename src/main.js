@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage } = require('electron');
+const { pathToFileURL } = require('url');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -11,16 +12,85 @@ const mods = require('./lib/mods');
 const game = require('./lib/launch');
 const azure = require('./lib/azure');
 const packs = require('./lib/modpacks');
+const skins = require('./lib/skins');
 const { autoUpdater } = require('electron-updater');
 
 let win;
+// game output can be thousands of lines: send it in batches, not one IPC message per line
+const os = require('os');
+let forceGc = () => {};
+try { require('v8').setFlagsFromString('--expose-gc'); forceGc = require('vm').runInNewContext('gc'); } catch {}
+// every launcher process (main + Chromium helpers) runs below normal priority while the game is on
+function launcherPriority(low) {
+  try {
+    const pri = low ? os.constants.priority.PRIORITY_BELOW_NORMAL : os.constants.priority.PRIORITY_NORMAL;
+    os.setPriority(process.pid, pri);
+    for (const m of app.getAppMetrics()) { try { os.setPriority(m.pid, pri); } catch {} }
+  } catch {}
+}
+// a download can emit thousands of progress events: the UI only needs ~8 per second
+const progT = new Map();
+process.on('uncaughtException', (e) => { try { console.error('[Azure] uncaught', e); } catch {} });
+process.on('unhandledRejection', (e) => { try { console.error('[Azure] unhandled', e); } catch {} });
+let logBuf = [], logTimer = null, suspended = false, pendingClosed = null;
+const flushLogs = () => { logTimer = null; if (win && !win.isDestroyed() && logBuf.length) { win.webContents.send('logs', logBuf); logBuf = []; } };
+const anyRunning = () => store.get().instances.some((i) => game.isRunning(i.id));
 const emit = (ch, payload) => {
+  if (ch === 'log') { logBuf.push(payload); if (logBuf.length > 400) logBuf.splice(0, logBuf.length - 400); if (!logTimer && win && !win.isDestroyed()) logTimer = setTimeout(flushLogs, 150); return; }
+  if (ch === 'closed') {
+    setTimeout(() => tryInstall(), 3000);
+    if (suspended && !anyRunning()) { pendingClosed = payload; createWindow(); return; } // game exited: bring the launcher back
+  }
+  if (ch === 'progress') {
+    let e = progT.get(payload.id); if (!e) { e = { t: 0, timer: null, last: null }; progT.set(payload.id, e); }
+    const now = Date.now();
+    if (now - e.t < 120 && payload.pct < 1) {
+      e.last = payload;
+      if (!e.timer) e.timer = setTimeout(() => { e.timer = null; e.t = Date.now(); const p = e.last; e.last = null; if (p && win && !win.isDestroyed()) win.webContents.send('progress', p); }, 120);
+      return;
+    }
+    e.t = now;
+  }
   if (!win || win.isDestroyed()) return;
   win.webContents.send(ch, payload);
-  if (ch === 'closed') { if (win.isMinimized()) win.restore(); setTimeout(() => tryInstall(), 3000); } // bring the launcher back when the game exits
+  if (ch === 'closed' && win.isMinimized()) win.restore();
 };
 
+let tray = null, quitting = false;
+app.on('before-quit', () => { quitting = true; });
+function showWin() { if (!win || win.isDestroyed()) { createWindow(); return; } if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+function buildTray() {
+  const ar = store.get().settings.language === 'ar';
+  if (!tray) {
+    const icon = nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'icon.png')).resize({ width: 16, height: 16 });
+    tray = new Tray(icon);
+    tray.setToolTip('Azure Launcher');
+    tray.on('click', showWin);
+  }
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: ar ? 'فتح اللانشر' : 'Open launcher', click: showWin },
+    { type: 'separator' },
+    { label: ar ? 'إغلاق اللانشر' : 'Quit launcher', click: () => { quitting = true; app.quit(); } },
+  ]));
+}
+
+/* While the game runs the launcher window is destroyed (no GPU/RAM/CPU used); the tray icon and the
+ * server heartbeat stay alive in the main process, and the window comes back when the game exits. */
+function suspendLauncher() {
+  if (!win || win.isDestroyed() || !anyRunning()) return;
+  suspended = true;
+  try { win.webContents.session.clearCache().catch(() => {}); } catch {}
+  win.destroy(); win = null;
+  if (tray) tray.setToolTip('Azure Launcher — playing');
+  // let Chromium release the window, then drop memory and CPU priority
+  setTimeout(() => { if (suspended) { launcherPriority(true); forceGc(); } }, 2500);
+  setTimeout(() => { if (suspended) { launcherPriority(true); forceGc(); } }, 15000);
+}
+
 function createWindow() {
+  if (suspended) launcherPriority(false);
+  suspended = false;
+  if (tray) tray.setToolTip('Azure Launcher');
   win = new BrowserWindow({
     width: 1220, height: 760, minWidth: 1000, minHeight: 660,
     frame: false,
@@ -32,7 +102,14 @@ function createWindow() {
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.once('ready-to-show', () => win.show());
+  win.webContents.once('did-finish-load', () => { flushLogs(); if (pendingClosed && win && !win.isDestroyed()) { win.webContents.send('closed', pendingClosed); pendingClosed = null; } });
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  win.on('close', (e) => { if (!quitting && store.get().settings.closeToTray) { e.preventDefault(); win.hide(); } }); // keep running in the tray
+  // never stay frozen: reload the UI if it stops responding or its process dies
+  let unresp = null;
+  win.on('unresponsive', () => { clearTimeout(unresp); unresp = setTimeout(() => { if (win && !win.isDestroyed()) win.webContents.reload(); }, 6000); });
+  win.on('responsive', () => clearTimeout(unresp));
+  win.webContents.on('render-process-gone', () => { if (win && !win.isDestroyed()) setTimeout(() => win && !win.isDestroyed() && win.webContents.reload(), 500); });
   win.on('maximize', () => emit('win-state', { maximized: true }));
   win.on('unmaximize', () => emit('win-state', { maximized: false }));
 }
@@ -40,13 +117,13 @@ function createWindow() {
 const single = app.requestSingleInstanceLock();
 if (!single) app.quit();
 else {
-  app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-  app.whenReady().then(() => { createWindow(); azure.startHeartbeat(); setupUpdater(); });
+  app.on('second-instance', () => showWin());
+  app.whenReady().then(() => { createWindow(); buildTray(); azure.startHeartbeat(); setupUpdater(); setTimeout(() => skins.syncOwn().catch(() => {}), 6000); });
 }
-app.on('window-all-closed', () => { store.flush(); app.quit(); });
+app.on('window-all-closed', () => { if (suspended || anyRunning()) return; store.flush(); app.quit(); });
 
 /* ---------- state ---------- */
-const safeAccounts = () => store.get().accounts.map(({ refresh, ...a }) => a);
+const safeAccounts = () => store.get().accounts.map(({ refresh, ...a }) => ({ ...a, skinData: skins.dataUrl(a) }));
 function getState() {
   const d = store.get();
   return {
@@ -55,6 +132,7 @@ function getState() {
     selectedAccount: d.selectedAccount,
     instances: d.instances,
     selectedInstance: d.selectedInstance,
+    playLog: d.playLog || {},
     running: d.instances.filter((i) => game.isRunning(i.id)).map((i) => i.id),
     totalRam: store.totalMB,
     platform: process.platform,
@@ -86,6 +164,7 @@ handle('settings:set', (patch) => {
   s.maxRam = Math.max(512, Math.min(Number(s.maxRam) || 2048, store.totalMB));
   s.minRam = Math.max(256, Math.min(Number(s.minRam) || 512, s.maxRam));
   store.save();
+  buildTray(); // language may have changed
   return store.get().settings;
 });
 handle('data:open', () => shell.openPath(P.root));
@@ -118,6 +197,11 @@ handle('instance:create', (data) => {
   d.instances.push(inst);
   d.selectedInstance = inst.id;
   fs.mkdirSync(P.instanceDir(inst.id), { recursive: true });
+  // light graphics for a brand-new instance (only if Minecraft has not written its own options yet)
+  try {
+    const of = path.join(P.instanceDir(inst.id), 'options.txt');
+    if (!fs.existsSync(of)) fs.writeFileSync(of, ['renderDistance:8', 'simulationDistance:8', 'graphicsMode:0', 'fancyGraphics:false', 'particles:2', 'entityShadows:false', 'biomeBlendRadius:1', 'mipmapLevels:2', 'enableVsync:false', 'maxFps:260', ''].join('\n'));
+  } catch {}
   store.save();
   return getState();
 });
@@ -129,13 +213,13 @@ handle('instance:update', (id, patch) => {
   store.save();
   return getState();
 });
-handle('instance:delete', (id) => {
+handle('instance:delete', async (id) => {
   const d = store.get();
   if (game.isRunning(id)) throw new Error('already_running');
   d.instances = d.instances.filter((i) => i.id !== id);
   if (d.selectedInstance === id) d.selectedInstance = d.instances[0] ? d.instances[0].id : null;
-  fs.rmSync(P.instanceDir(id), { recursive: true, force: true });
   store.save();
+  await fs.promises.rm(P.instanceDir(id), { recursive: true, force: true }); // async: deleting a big world must not freeze the launcher
   return getState();
 });
 handle('instance:select', (id) => { store.get().selectedInstance = id; store.save(); });
@@ -144,14 +228,21 @@ handle('instance:folder', (id, sub) => { const dir = path.join(P.instanceDir(id)
 /* ---------- accounts ---------- */
 handle('account:offline', (name) => { accounts.addOffline(name); return getState(); });
 handle('account:microsoft', async () => { await accounts.addMicrosoft(); return getState(); });
-handle('account:remove', (id) => { accounts.remove(id); return getState(); });
+handle('account:remove', (id) => { const a = store.get().accounts.find((x) => x.id === id); if (a) { const n = a.name; if (a.skin) azure.skinDelete(n).catch(() => {}); skins.clearSkin(a); } accounts.remove(id); return getState(); });
+const findAcc = (id) => { const a = store.get().accounts.find((x) => x.id === id); if (!a) throw new Error('account_not_found'); return a; };
+handle('skin:pick', async (id) => {
+  const acc = findAcc(id);
+  const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'PNG', extensions: ['png'] }] });
+  if (!r.canceled) { skins.setSkin(acc, r.filePaths[0]); skins.syncOwn().catch(() => {}); }
+  return getState();
+});
+handle('skin:clear', (id) => { const a = findAcc(id); const n = a.name; skins.clearSkin(a); azure.skinDelete(n).catch(() => {}); return getState(); });
 handle('account:select', (id) => { store.get().selectedAccount = id; store.save(); return getState(); });
 
 /* ---------- game ---------- */
 handle('game:launch', async (id, opts) => {
   const inst = findInst(id);
-  const hide = store.get().settings.closeOnLaunch;
-  game.launch(inst, emit, { join: !!(opts && opts.join) }).then(() => { if (hide && win) win.minimize(); }).catch((e) => emit('launch-error', { id, error: e.message }));
+  game.launch(inst, emit, { join: !!(opts && opts.join) }).then(() => { if (store.get().settings.suspendInGame !== false) suspendLauncher(); }).catch((e) => emit('launch-error', { id, error: e.message }));
 });
 handle('game:stop', (id) => game.stop(id));
 
@@ -161,6 +252,7 @@ handle('mods:install', async (id, item) => {
   const files = await mods.install(findInst(id), item, (f) => emit('mod-status', { id, file: f }));
   return files;
 });
+handle('mods:perf', (id) => mods.installPerf(findInst(id), (f) => emit('mod-status', { id, file: f })));
 handle('mods:list', (id, type) => mods.list(findInst(id), type));
 handle('mods:toggle', (id, type, file) => mods.toggle(findInst(id), type, file));
 handle('mods:remove', (id, type, file) => mods.remove(findInst(id), type, file));
@@ -183,6 +275,26 @@ handle('packs:importFile', async () => {
 
 /* ---------- server panel ---------- */
 handle('server:status', () => azure.status());
+
+/* Minecraft news (right panel). Fetched here because the renderer's CSP blocks network requests. */
+let newsCache = { at: 0, items: [] };
+handle('news:get', async () => {
+  if (newsCache.items.length && Date.now() - newsCache.at < 30 * 60 * 1000) return newsCache.items;
+  const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const r = await fetch('https://launchercontent.mojang.com/news.json', { signal: ctrl.signal, headers: { 'User-Agent': 'AzureLauncher' } });
+    if (!r.ok) throw new Error('news http ' + r.status);
+    const j = await r.json();
+    const base = 'https://launchercontent.mojang.com';
+    const abs = (u) => (!u ? '' : /^https:\/\//.test(u) ? u : base + (u.startsWith('/') ? '' : '/') + u);
+    const items = (j.entries || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 8).map((e) => ({
+      title: String(e.title || ''), date: e.date || '',
+      image: abs((e.newsPageImage && e.newsPageImage.url) || (e.playPageImage && e.playPageImage.url)),
+      link: /^https:\/\//.test(e.readMoreLink || '') ? e.readMoreLink : '',
+    }));
+    newsCache = { at: Date.now(), items }; return items;
+  } finally { clearTimeout(to); }
+});
 
 /* ---------- auto update (GitHub Releases) ----------
  * The launcher updates itself when it is opened. The user may skip for the first 24 hours after the
@@ -230,6 +342,7 @@ function setupUpdater() {
   autoUpdater.on('update-downloaded', () => { if (!pending) return; pending.downloaded = true; pending.downloading = false; tryInstall(); });
   autoUpdater.on('error', () => { if (!pending) return; pending.downloading = false; if (pending.forced) upd({ state: 'error' }); });
   const tick = () => {
+    if (anyRunning()) return; // never check/download updates while a game is running
     if (pending && !pending.forced && Date.now() >= pending.deadline) force(); // skipping is only allowed for the first day
     autoUpdater.checkForUpdates().catch(() => {});
   };
@@ -242,3 +355,40 @@ handle('update:skip', () => {
   emit('update', null);
 });
 handle('update:retry', () => { if (pending) { pending.downloading = false; force(); startDownload(); } });
+
+/* ---------- instance page: worlds / screenshots / files ---------- */
+const inInst = (id, rel) => {
+  const base = path.resolve(P.instanceDir(id));
+  const p = path.resolve(base, rel || '');
+  if (p !== base && !p.startsWith(base + path.sep)) throw new Error('bad_path');
+  return p;
+};
+async function listDir(dir) { try { return await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return []; } }
+handle('inst:worlds', async (id) => {
+  const dir = inInst(id, 'saves');
+  const out = [];
+  for (const e of await listDir(dir)) if (e.isDirectory()) { try { out.push({ name: e.name, mtime: (await fs.promises.stat(path.join(dir, e.name))).mtimeMs }); } catch {} }
+  return out.sort((a, b) => b.mtime - a.mtime);
+});
+handle('inst:shots', async (id) => {
+  const dir = inInst(id, 'screenshots');
+  const out = [];
+  for (const e of await listDir(dir)) {
+    if (!e.isFile() || !/\.(png|jpe?g)$/i.test(e.name)) continue;
+    try { out.push({ name: e.name, url: pathToFileURL(path.join(dir, e.name)).href, mtime: (await fs.promises.stat(path.join(dir, e.name))).mtimeMs }); } catch {}
+  }
+  return out.sort((a, b) => b.mtime - a.mtime).slice(0, 80);
+});
+handle('inst:files', async (id, sub) => {
+  const dir = inInst(id, sub);
+  const out = [];
+  for (const e of (await listDir(dir)).slice(0, 400)) {
+    try { const st = await fs.promises.stat(path.join(dir, e.name)); out.push({ name: e.name, dir: e.isDirectory(), size: st.size, mtime: st.mtimeMs }); } catch {}
+  }
+  return out.sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name));
+});
+handle('inst:open', (id, rel) => {
+  const p = inInst(id, rel);
+  if (!fs.existsSync(p)) fs.mkdirSync(/\.[a-z0-9]+$/i.test(p) ? path.dirname(p) : p, { recursive: true }); // e.g. a saves/ or screenshots/ folder that does not exist yet
+  return shell.openPath(p);
+});
