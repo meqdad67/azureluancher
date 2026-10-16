@@ -20,13 +20,13 @@ jobs:
         run: |
           unzip -o azure-update-19.zip
           rm -f azure-update-*.zip
-          npm version 1.1.7 --no-git-tag-version
+          npm version 1.1.7 --no-git-tag-version --allow-same-version
       - name: Commit and tag
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add -A
-          git commit -m "v1.1.7 azure client + new ui + performance + anti-freeze"
+          git commit -m "v1.1.7 azure client + new ui + performance + anti-freeze" || echo "nothing to commit"
           git pull --rebase
           git push
           git tag -f v1.1.7
