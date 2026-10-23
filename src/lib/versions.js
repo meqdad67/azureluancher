@@ -1,4 +1,5 @@
 const fs = require('fs');
+const metas = require('./metas');
 const path = require('path');
 const P = require('./paths');
 const { getJSON } = require('./net');
@@ -46,16 +47,17 @@ function neoPrefix(mc) {
 async function loaderVersions(loader, mc) {
   if (loader === 'vanilla') return [];
   if (loader === 'azure') {
-    // Azure Client bundles one mod build: only MC 26.1 with its pinned Fabric loader is allowed.
-    return mc === '26.1' ? [{ id: '0.19.5', stable: true }] : [];
+    // Azure Client: only the Minecraft versions that have a bundled mod build (see metas.AZURE).
+    const k = metas.AZURE[mc];
+    if (!k) return [];
+    if (k === 'fabric') return [{ id: '0.19.5', stable: true }];
+    const l = await getJSON(`${metas.META[k].list}/${encodeURIComponent(mc)}`);
+    const x = l.find((e) => e.loader && e.loader.stable) || l[0];
+    return x ? [{ id: x.loader.version, stable: true }] : [];
   }
-  if (loader === 'fabric') {
-    const l = await getJSON(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(mc)}`);
-    return l.map((x) => ({ id: x.loader.version, stable: !!x.loader.stable }));
-  }
-  if (loader === 'quilt') {
-    const l = await getJSON(`https://meta.quiltmc.org/v3/versions/loader/${encodeURIComponent(mc)}`);
-    return l.map((x) => ({ id: x.loader.version, stable: !/beta|alpha|pre/i.test(x.loader.version) }));
+  if (metas.META[loader]) {
+    const l = await getJSON(`${metas.META[loader].list}/${encodeURIComponent(mc)}`);
+    return l.map((x) => ({ id: x.loader.version, stable: loader === 'quilt' ? !/beta|alpha|pre/i.test(x.loader.version) : !!x.loader.stable }));
   }
   if (loader === 'forge') {
     const meta = await getJSON('https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json');

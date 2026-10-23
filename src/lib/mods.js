@@ -8,7 +8,7 @@ const MR = 'https://api.modrinth.com/v2';
 const CF = 'https://api.curseforge.com/v1';
 const TYPE_DIR = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks' };
 const CF_CLASS = { mod: 6, resourcepack: 12, shader: 6552 };
-const CF_LOADER = { forge: 1, fabric: 4, azure: 4, quilt: 4, neoforge: 6 };
+const CF_LOADER = { forge: 1, fabric: 4, azure: 4, legacyfabric: 4, ornithe: 4, quilt: 4, neoforge: 6 };
 
 const enc = encodeURIComponent;
 const dirFor = (inst, type) => path.join(P.instanceDir(inst.id), TYPE_DIR[type] || 'mods');
@@ -19,7 +19,8 @@ function remember(inst, type, file, info) { const m = readMeta(inst); m[`${type}
 
 function loaderList(inst) {
   if (inst.loader === 'quilt') return ['quilt', 'fabric'];
-  if (inst.loader === 'azure') return ['fabric'];
+  if (inst.loader === 'azure') return [inst.mcVersion === '1.8.9' ? 'legacy-fabric' : 'fabric'];
+  if (inst.loader === 'legacyfabric') return ['legacy-fabric'];
   return [inst.loader];
 }
 const cfKey = () => {
@@ -131,6 +132,21 @@ function list(inst, type = 'mod') {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Same result as list(), but reads the folder without blocking the launcher (used by the UI). */
+async function listAsync(inst, type = 'mod') {
+  const dir = dirFor(inst, type);
+  let files;
+  try { files = await fs.promises.readdir(dir); } catch { return []; }
+  const meta = readMeta(inst);
+  const rows = await Promise.all(files.filter((f) => /\.(jar|zip)(\.disabled)?$/i.test(f)).map(async (f) => {
+    const clean = f.replace(/\.disabled$/, '');
+    let size = 0; try { size = (await fs.promises.stat(path.join(dir, f))).size; } catch {}
+    const m = meta[`${type}:${clean}`] || {};
+    return { file: f, name: m.title || clean.replace(/\.(jar|zip)$/i, ''), icon: m.icon || '', version: m.version || '', source: m.source || 'local', size, enabled: !f.endsWith('.disabled') };
+  }));
+  return rows.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 const isAzureLocked = (inst, file) => inst.loader === 'azure' && /^azure-client.*\.jar(\.disabled)?$/i.test(file);
 function toggle(inst, type, file) {
   if (isAzureLocked(inst, file)) throw new Error('azure_locked');
@@ -173,4 +189,4 @@ async function installPerf(inst, onStatus) {
   return { installed, skipped };
 }
 
-module.exports = { installPerf, search, install, list, toggle, remove, addLocal, TYPE_DIR };
+module.exports = { listAsync, installPerf, search, install, list, toggle, remove, addLocal, TYPE_DIR };

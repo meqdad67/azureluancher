@@ -6,17 +6,21 @@ const { execFile } = require('child_process');
 // G1 tuned for low frame-time spikes. Skipped when the user already picked another GC.
 const FAST_JVM = ['-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled', '-XX:MaxGCPauseMillis=50', '-XX:+UnlockExperimentalVMOptions', '-XX:+DisableExplicitGC',
   '-XX:G1NewSizePercent=30', '-XX:G1MaxNewSizePercent=40', '-XX:G1HeapRegionSize=16M', '-XX:G1ReservePercent=20', '-XX:InitiatingHeapOccupancyPercent=15', '-XX:+PerfDisableSharedMem'];
+// Machines with little RAM: the big-heap tuning above (16M regions, 20% reserve, early marking) wastes memory and makes GC run constantly.
+const LOW_JVM = ['-XX:+UseG1GC', '-XX:MaxGCPauseMillis=50', '-XX:+DisableExplicitGC', '-XX:+PerfDisableSharedMem'];
 const GC_FLAG = /UseZGC|UseParallelGC|UseSerialGC|UseShenandoahGC|UseG1GC|UseConcMarkSweepGC/;
 
 // Lightest sensible graphics, applied ONCE per instance (so later in-game changes stick).
 const LIGHT = { renderDistance: '6', simulationDistance: '5', graphicsMode: '0', fancyGraphics: 'false', particles: '2', entityShadows: 'false', biomeBlendRadius: '0', mipmapLevels: '0', enableVsync: 'false', entityDistanceScaling: '0.5', maxFps: '260' };
-function applyLightOptions(gameDir) {
+const LIGHT_LOW = { ...LIGHT, renderDistance: '4' };
+function applyLightOptions(gameDir, low) {
+  const LIGHT_USED = low ? LIGHT_LOW : LIGHT;
   const f = require('path').join(gameDir, 'options.txt');
   let lines = [];
   try { lines = fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(Boolean); } catch {}
   const seen = new Set();
-  lines = lines.map((l) => { const k = l.split(':')[0]; if (k in LIGHT) { seen.add(k); return `${k}:${LIGHT[k]}`; } return l; });
-  for (const k of Object.keys(LIGHT)) if (!seen.has(k)) lines.push(`${k}:${LIGHT[k]}`);
+  lines = lines.map((l) => { const k = l.split(':')[0]; if (k in LIGHT_USED) { seen.add(k); return `${k}:${LIGHT_USED[k]}`; } return l; });
+  for (const k of Object.keys(LIGHT_USED)) if (!seen.has(k)) lines.push(`${k}:${LIGHT_USED[k]}`);
   fs.writeFileSync(f, lines.join('\n') + '\n');
 }
 
@@ -34,6 +38,7 @@ const { ensureJava } = require('./java');
 const { ensureLoader } = require('./loaders');
 const azure = require('./azure');
 const skins = require('./skins');
+const ram = require('./ram');
 
 function joinArgs(mc) {
   const m = /^1\.(\d+)/.exec(mc);
@@ -79,16 +84,28 @@ async function launch(inst, emit, opts = {}) {
       progress(e, 0.15 + 0.8 * (e.key === 'dl_assets' ? 0.3 + 0.7 * (e.total ? e.task / e.total : 1) : 0.3 * (e.total ? e.task / e.total : 1)));
     });
 
-    const maxRam = inst.ram && inst.ram > 0 ? inst.ram : s.maxRam;
-    const minRam = Math.min(s.minRam || 512, maxRam);
     const extraJvm = [s.jvmArgs, inst.jvmArgs].filter(Boolean).join(' ').split(/\s+/).filter(Boolean);
     const useFast = s.optimizedJvm !== false && !extraJvm.some((a) => GC_FLAG.test(a));
+    const rp = ram.plan({ totalMB: store.totalMB, want: inst.ram && inst.ram > 0 ? inst.ram : s.maxRam, minWant: s.minRam, lowSetting: s.lowRam, useFast });
+    const { maxRam, minRam, low } = rp;
+    if (rp.capped) log(`[Azure] RAM request capped to ${maxRam}MB (this PC has ${store.totalMB}MB; the rest is needed by Windows)`);
     if (s.highPerfGpu !== false) preferDedicatedGpu(java.javaw);
-    if (s.ultraLight !== false && !inst.lightApplied) { try { applyLightOptions(gameDir); inst.lightApplied = true; store.save(); } catch (e) { log(`[Azure] light options skipped: ${e.message}`); } }
+    const lvl = low ? 'low' : 'std';
+    if (s.ultraLight !== false && inst.lightApplied !== lvl && !(inst.lightApplied === true && lvl === 'std')) { try { applyLightOptions(gameDir, low); inst.lightApplied = lvl; store.save(); } catch (e) { log(`[Azure] light options skipped: ${e.message}`); } }
+    // one line with the machine facts, so slow-FPS reports can be diagnosed from the Console page
+    try {
+      require('electron').app.getGPUInfo('basic').then((g) => {
+        const V = { 4318: 'NVIDIA', 32902: 'Intel', 4098: 'AMD' };
+        const gpus = (g.gpuDevice || []).map((d) => (V[d.vendorId] || '0x' + Number(d.vendorId).toString(16)) + (d.active ? '*' : '')).join(', ') || '?';
+        const c = os.cpus();
+        log(`[Azure] CPU ${c[0] ? c[0].model.trim() : '?'} x${c.length} | RAM ${Math.round(os.totalmem() / 1073741824)}GB | game heap ${maxRam}MB (Xms ${minRam}MB) | low-RAM mode ${low ? 'on' : 'off'} | GPUs ${gpus} (*=active) | fast JVM ${useFast ? 'on' : 'off'}`);
+      }).catch(() => {});
+    } catch {}
+    const w = inst.window;
     const args = core.buildCommand({
       prepared, versionId, versionType: inst.mcType === 'snapshot' ? 'snapshot' : 'release',
-      gameDir, auth, ramMax: maxRam, ramMin: minRam, extraJvm: useFast ? [...FAST_JVM, ...extraJvm] : extraJvm, extraGame: opts.join ? joinArgs(inst.mcVersion) : [],
-      window: s.fullscreen ? { fullscreen: true } : { width: s.width, height: s.height },
+      gameDir, auth, ramMax: maxRam, ramMin: minRam, extraJvm: useFast ? [...(low ? LOW_JVM : FAST_JVM), ...extraJvm] : extraJvm, extraGame: opts.join ? joinArgs(inst.mcVersion) : [],
+      window: w ? (w.fullscreen ? { fullscreen: true } : { width: w.width, height: w.height }) : (s.fullscreen ? { fullscreen: true } : { width: s.width, height: s.height }),
     });
 
     progress({ key: 'launching' }, 0.97);

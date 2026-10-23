@@ -13,6 +13,7 @@ const game = require('./lib/launch');
 const azure = require('./lib/azure');
 const packs = require('./lib/modpacks');
 const skins = require('./lib/skins');
+const ram = require('./lib/ram');
 const { autoUpdater } = require('electron-updater');
 
 let win;
@@ -130,11 +131,13 @@ function getState() {
     settings: d.settings,
     accounts: safeAccounts(),
     selectedAccount: d.selectedAccount,
-    instances: d.instances,
+    instances: d.instances.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)), // pinned first, otherwise creation order
     selectedInstance: d.selectedInstance,
     playLog: d.playLog || {},
     running: d.instances.filter((i) => game.isRunning(i.id)).map((i) => i.id),
     totalRam: store.totalMB,
+    ramCap: ram.heapCap(store.totalMB),
+    lowRam: ram.isLow(store.totalMB, d.settings.lowRam),
     platform: process.platform,
     version: app.getVersion(),
     dataDir: P.root,
@@ -178,6 +181,18 @@ handle('mc:versions', () => versions.mcVersions());
 handle('loader:versions', (loader, mc) => versions.loaderVersions(loader, mc));
 
 /* ---------- instances ---------- */
+/* Instance picture: pick an image, crop to a square, shrink to 128px so it stays small in the store. */
+const okIcon = (v) => typeof v === 'string' && (v === '' || (/^data:image\/(png|jpeg|webp);base64,/.test(v) && v.length < 400000));
+handle('instance:pickIcon', async () => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Image', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+  if (r.canceled || !r.filePaths[0]) return null;
+  const img = nativeImage.createFromPath(r.filePaths[0]);
+  if (img.isEmpty()) throw new Error('bad_image');
+  const { width: w, height: h } = img.getSize(), side = Math.min(w, h);
+  const png = img.crop({ x: Math.floor((w - side) / 2), y: Math.floor((h - side) / 2), width: side, height: side }).resize({ width: 128, height: 128, quality: 'good' }).toPNG();
+  return 'data:image/png;base64,' + png.toString('base64');
+});
+handle('blocks:list', (preferred) => require('./lib/blocks').list(preferred));
 handle('instance:create', (data) => {
   const d = store.get();
   const inst = {
@@ -190,6 +205,7 @@ handle('instance:create', (data) => {
     loaderFull: data.loaderFull || '',
     ram: Number(data.ram) || 0,
     jvmArgs: data.jvmArgs || '',
+    icon: okIcon(data.icon) ? data.icon : '',
     hue: Math.floor(Math.random() * 360),
     created: Date.now(), lastPlayed: 0, playTime: 0,
   };
@@ -209,6 +225,12 @@ handle('instance:update', (id, patch) => {
   const inst = findInst(id);
   const critical = ['mcVersion', 'loader', 'loaderVersion'].some((k) => k in patch && patch[k] !== inst[k]);
   for (const k of ['name', 'mcVersion', 'mcType', 'loader', 'loaderVersion', 'loaderFull', 'ram', 'jvmArgs']) if (k in patch) inst[k] = patch[k];
+  if ('icon' in patch && okIcon(patch.icon)) inst.icon = patch.icon;
+  if ('window' in patch) {
+    const w = patch.window, n = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v)) || lo));
+    if (!w) delete inst.window;
+    else inst.window = { width: n(w.width, 320, 7680), height: n(w.height, 240, 4320), fullscreen: !!w.fullscreen };
+  }
   if (critical) delete inst.loaderId;
   store.save();
   return getState();
@@ -224,6 +246,47 @@ handle('instance:delete', async (id) => {
 });
 handle('instance:select', (id) => { store.get().selectedInstance = id; store.save(); });
 handle('instance:folder', (id, sub) => { const dir = path.join(P.instanceDir(id), sub || ''); fs.mkdirSync(dir, { recursive: true }); return shell.openPath(dir); });
+handle('instance:pin', (id) => { const i = findInst(id); if (i.pinned) delete i.pinned; else i.pinned = true; store.save(); return getState(); });
+handle('instance:duplicate', async (id) => {
+  const src = findInst(id);
+  if (game.isRunning(id)) throw new Error('already_running');
+  const d = store.get();
+  const copy = { ...JSON.parse(JSON.stringify(src)), id: crypto.randomBytes(5).toString('hex'), name: String(src.name + ' (copy)').slice(0, 40), created: Date.now(), lastPlayed: 0, playTime: 0 };
+  delete copy.pinned; delete copy.preparing;
+  const from = P.instanceDir(src.id), to = P.instanceDir(copy.id);
+  if (fs.existsSync(from)) await fs.promises.cp(from, to, { recursive: true }); else fs.mkdirSync(to, { recursive: true });
+  d.instances.push(copy);
+  store.save();
+  return getState();
+});
+// zip of the instance's mods/config/resourcepacks/shaderpacks/options.txt (tar -a on Windows/macOS, zip on Linux)
+handle('instance:export', async (id) => {
+  const inst = findInst(id), dir = P.instanceDir(id);
+  const items = ['mods', 'config', 'resourcepacks', 'shaderpacks', 'options.txt'].filter((n) => fs.existsSync(path.join(dir, n)));
+  if (!items.length) throw new Error('export_empty');
+  const r = await dialog.showSaveDialog(win, { defaultPath: (inst.name || 'instance').replace(/[\\/:*?"<>|]/g, '_') + '.zip', filters: [{ name: 'ZIP', extensions: ['zip'] }] });
+  if (r.canceled || !r.filePath) return null;
+  fs.rmSync(r.filePath, { force: true });
+  const { execFile } = require('child_process');
+  const [cmd, args] = process.platform === 'linux' ? ['zip', ['-r', '-q', r.filePath, ...items]] : ['tar', ['-a', '-c', '-f', r.filePath, ...items]];
+  await new Promise((resolve, reject) => execFile(cmd, args, { cwd: dir, windowsHide: true, maxBuffer: 1 << 20 }, (err, _o, se) => (err ? reject(new Error(err.code === 'ENOENT' ? 'export_tool_missing' : (se || err.message))) : resolve())));
+  return r.filePath;
+});
+// repair: delete the game jar, natives and loader folder so the next launch downloads/extracts them again
+handle('instance:repair', async (id) => {
+  const inst = findInst(id);
+  if (game.isRunning(id)) throw new Error('already_running');
+  const safe = (v) => typeof v === 'string' && /^[\w.+-]+$/.test(v);
+  const vroot = path.join(P.mc, 'versions'), rm = (p) => fs.promises.rm(p, { recursive: true, force: true });
+  if (!safe(inst.mcVersion)) throw new Error('bad_path');
+  await rm(path.join(vroot, inst.mcVersion, `${inst.mcVersion}.jar`));
+  await rm(path.join(vroot, inst.mcVersion, 'natives'));
+  const loaderDir = inst.loader === 'vanilla' ? null : require('./lib/metas').loaderId(inst);
+  if (loaderDir && safe(loaderDir)) await rm(path.join(vroot, loaderDir));
+  delete inst.loaderId;
+  store.save();
+  return true;
+});
 
 /* ---------- accounts ---------- */
 handle('account:offline', (name) => { accounts.addOffline(name); return getState(); });
@@ -253,7 +316,7 @@ handle('mods:install', async (id, item) => {
   return files;
 });
 handle('mods:perf', (id) => mods.installPerf(findInst(id), (f) => emit('mod-status', { id, file: f })));
-handle('mods:list', (id, type) => mods.list(findInst(id), type));
+handle('mods:list', (id, type) => mods.listAsync(findInst(id), type));
 handle('mods:toggle', (id, type, file) => mods.toggle(findInst(id), type, file));
 handle('mods:remove', (id, type, file) => mods.remove(findInst(id), type, file));
 
