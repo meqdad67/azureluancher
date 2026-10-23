@@ -18,7 +18,7 @@ jobs:
           node-version: 20
       - name: Apply update
         run: |
-          unzip -o azure-update-19.zip
+          unzip -o azure-update-27.zip
           rm -f azure-update-*.zip
           npm version 1.1.7 --no-git-tag-version --allow-same-version
       - name: Commit and tag
