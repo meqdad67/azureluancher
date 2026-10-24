@@ -18,20 +18,20 @@ jobs:
           node-version: 20
       - name: Apply update
         run: |
-          unzip -o azure-update-27.zip
+          unzip -o azure-update-29.zip
           rm -f azure-update-*.zip
-          npm version 1.1.7 --no-git-tag-version --allow-same-version
+          npm version 1.1.8 --no-git-tag-version --allow-same-version
       - name: Commit and tag
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add -A
-          git commit -m "v1.1.7 azure client + new ui + performance + anti-freeze" || echo "nothing to commit"
+          git commit -m "v1.1.8 azure client 1.21.11/1.8.9, legacy fabric, ornithe, bedrock mode, library page, update button" || echo "nothing to commit"
           git pull --rebase
           git push
-          git tag -f v1.1.7
-          git push -f origin v1.1.7
+          git tag -f v1.1.8
+          git push -f origin v1.1.8
       - name: Trigger build
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run build.yml --ref v1.1.7
+        run: gh workflow run build.yml --ref v1.1.8
