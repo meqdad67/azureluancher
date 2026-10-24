@@ -438,3 +438,11 @@ body.nolag .btn.primary,body.nolag .play{background-color:var(--az)!important}
 .inst.row-item{flex-direction:row;align-items:center;gap:14px;padding:12px 16px}.inst.row-item.add-tile{justify-content:center;min-height:0}
 .inst-list .inst-ic,.inst-list .inst-img{flex:none}
 .view-seg{display:inline-flex;flex-direction:row;flex-wrap:nowrap}
+
+/* ---- Java / Bedrock switch (titlebar) ---- */
+.edition{display:inline-flex;margin-inline-start:12px;padding:3px;border-radius:999px;border:1px solid var(--line-2);background:rgba(5,10,21,.5);-webkit-app-region:no-drag;cursor:pointer}
+.edition span{padding:3px 11px;border-radius:999px;font-size:12px;font-weight:700;color:var(--mist)}.edition span.on{background:var(--az);color:#041021}
+
+/* ---- update button (titlebar) ---- */
+.wctl .upd{position:relative}.upd-dot{display:none;position:absolute;top:8px;inset-inline-end:8px;width:9px;height:9px;border-radius:50%;background:#ff4d5e;box-shadow:0 0 0 2px #0a1224}
+.wctl .upd.has .upd-dot{display:block}.wctl .upd.has svg{color:var(--cyan)}

@@ -2,6 +2,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const api = window.azure.invoke;
 const S = {
+  bedrock: { files: [] },
   page: 'home', st: null, versions: null, logs: [], prog: {}, states: {}, err: {},
   mods: { type: 'mod', source: 'modrinth', q: '', sort: 'relevance', results: [], total: 0, offset: 0, loading: false, view: 'browse', installed: [], busy: {} },
   news: { items: null, loading: false, err: false },
@@ -59,7 +60,10 @@ function avatar(a) {
 const instIcon = (i) => (i.icon ? `<div class="inst-ic has-img" style="--h:${i.hue}"><img src="${i.icon}" alt=""></div>` : `<div class="inst-ic" style="--h:${i.hue}">${ic('cube')}</div>`);
 
 /* ---------------- shell ---------------- */
+const isBedrock = () => S.st && S.st.settings.edition === 'bedrock';
+function renderEdition() { const b = $('#editionBtn'); if (b) b.innerHTML = `<span class="${isBedrock() ? '' : 'on'}">Java</span><span class="${isBedrock() ? 'on' : ''}">Bedrock</span>`; }
 function renderNav() {
+  if (isBedrock()) { const bb = (p, i, k) => `<button class="nav-btn ${S.page === p ? 'on' : ''}" data-act="nav" data-p="${p}" title="${t(k)}">${ic(i)}</button>`; $('#nav').innerHTML = bb('bedrock', 'pack', 'bd_title') + bb('console', 'term', 'nav_console') + `<div class="nav-spacer"></div>` + bb('settings', 'gear', 'nav_settings'); return; }
   const a = acc();
   const btn = (p, i, k) => `<button class="nav-btn ${S.page === p ? 'on' : ''}" data-act="nav" data-p="${p}" title="${t(k)}">${ic(i)}</button>`;
   $('#nav').innerHTML = `<button class="nav-avatar" data-act="nav" data-p="accounts" title="${t('nav_accounts')}">${a ? avatar(a) : '<div class="avatar">?</div>'}</button><div class="nav-sep"></div>`
@@ -69,10 +73,13 @@ function renderNav() {
     + `<div class="nav-spacer"></div><button class="nav-btn ${S.page === 'settings' ? 'on' : ''}" data-act="nav" data-p="settings" title="${t('nav_settings')}">${ic('gear')}</button>`;
 }
 function render() {
+  if (isBedrock() && !['bedrock', 'settings', 'console'].includes(S.page)) S.page = 'bedrock';
+  if (!isBedrock() && S.page === 'bedrock') S.page = 'home';
   if (S.page === 'instance' && !inst()) S.page = 'instances';
-  applyTheme(); renderNav();
-  const p = { home: pHome, instances: pInstances, instance: pInstance, packs: pPacks, mods: pMods, accounts: pAccounts, console: pConsole, settings: pSettings }[S.page]();
+  applyTheme(); renderNav(); renderEdition();
+  const p = { home: pHome, instances: pInstances, instance: pInstance, packs: pPacks, mods: pMods, accounts: pAccounts, console: pConsole, settings: pSettings, bedrock: pBedrock }[S.page]();
   $('#page').innerHTML = `<div id="updBar">${updHTML()}</div>` + p;
+  if (S.page === 'bedrock') loadBedrock();
   if (S.page === 'console') { const c = $('#con'); if (c) c.scrollTop = c.scrollHeight; }
   if (S.page === 'mods') afterMods();
   if (S.page === 'instance') afterInstance();
@@ -118,6 +125,19 @@ function paintProgress() {
 }
 
 /* ---------------- instances ---------------- */
+/* ---- Bedrock mode ---- */
+function bedrockRows() {
+  const f = S.bedrock.files;
+  return f.length ? f.map((x) => `<div class="inst row-item" style="cursor:default">${ic('pack')}<div class="grow"><h4>${esc(x.name)}</h4><div class="sub">${fmtSize(x.size)}</div></div>
+    <button class="btn sm" data-act="bdInstall" data-n="${esc(x.name)}">${t('bd_install')}</button><button class="btn sm icon danger" data-act="bdRemove" data-n="${esc(x.name)}">${ic('trash')}</button></div>`).join('') : `<div class="empty"><p>${t('bd_empty')}</p></div>`;
+}
+function pBedrock() {
+  return `<div class="page-head"><div><h2>${t('bd_title')}</h2><p>${t('bd_sub')}</p></div><button class="btn primary" data-act="bdPlay">${ic('play')} ${t('bd_play')}</button></div>
+  <div class="help" style="margin-bottom:22px">${t('bd_note')}</div>
+  <div class="lib-tools"><div><b>${t('bd_addons')}</b></div><div class="row"><button class="btn" data-act="bdFolder">${ic('folder')} ${t('m_folder')}</button><button class="btn primary" data-act="bdAdd">${ic('plus')} ${t('bd_add')}</button></div></div>
+  <div class="inst-list" id="bdList">${bedrockRows()}</div>`;
+}
+async function loadBedrock() { try { S.bedrock.files = await api('bedrock:list'); const l = $('#bdList'); if (l && S.page === 'bedrock') l.innerHTML = bedrockRows(); } catch (e) { fail(e); } }
 const S_LIB = { q: '', sort: 'last', view: 'grid' };
 const agoText = (ts) => {
   if (!ts) return t('lib_never');
@@ -527,6 +547,12 @@ const A = {
   delInst: async (el, e) => { e.stopPropagation(); const i = S.st.instances.find((x) => x.id === el.dataset.id); if (!confirm(t('confirm_delete', { name: i.name }))) return; try { S.st = await api('instance:delete', i.id); if (S.M) { S.M = null; drawModal(); } render(); } catch (er) { fail(er); } },
   folder: () => api('instance:folder', inst().id), folderOf: (el, e) => { e.stopPropagation(); api('instance:folder', el.dataset.id); },
   closeModal: () => { S.M = null; drawModal(); }, backdrop: (el, e) => { if (e.target === el) A.closeModal(); },
+  edition: async () => { try { S.st.settings = await api('settings:set', { edition: isBedrock() ? 'java' : 'bedrock' }); S.page = isBedrock() ? 'bedrock' : 'home'; render(); } catch (e) { fail(e); } },
+  bdPlay: async () => { try { await api('bedrock:play'); toast(t('toast_bd_opened'), 'ok'); } catch (e) { fail(e); } },
+  bdAdd: async () => { try { S.bedrock.files = await api('bedrock:add'); $('#bdList').innerHTML = bedrockRows(); } catch (e) { fail(e); } },
+  bdFolder: () => api('bedrock:folder'),
+  bdInstall: async (el) => { try { await api('bedrock:install', el.dataset.n); toast(t('toast_bd_opened'), 'ok'); } catch (e) { fail(e); } },
+  bdRemove: async (el) => { if (!confirm(t('bd_confirm_rm', { name: el.dataset.n }))) return; try { S.bedrock.files = await api('bedrock:remove', el.dataset.n); $('#bdList').innerHTML = bedrockRows(); } catch (e) { fail(e); } },
   libView: (el) => { S_LIB.view = el.dataset.v; render(); },
   ddToggle: () => { S.M.ddOpen = !S.M.ddOpen; drawModal(); if (S.M.ddOpen) { const q = $('#vq'); if (q) q.focus(); } },
   pickVer: (el) => { setVersion(el.dataset.id, el.dataset.type); if (S.M.mode !== 'edit') { S.M.ddOpen = false; return drawModal(); } $('#vlist').innerHTML = vlistHTML(); const ph = $('#mName'); if (ph) ph.placeholder = 'Minecraft ' + S.M.mcVersion; },
@@ -574,6 +600,15 @@ const A = {
   modRefresh: () => { if (S.mods.view === 'installed') loadInstalled(); else runSearch(); },
   srvCopy: () => { navigator.clipboard.writeText('AzureSMP.asrv.qzz.io'); toast(t('srv_copied'), 'ok'); },
   srvJoin: (el, e) => A.play(el, e, { join: true }),
+  updBtn: async () => {
+    try {
+      if (S.updAvail) { if (!confirm(t('upd_confirm', { v: S.updAvail }))) return; await api('update:install'); return; }
+      toast(t('upd_checking'));
+      const r = await api('update:check');
+      if (r.available) { S.updAvail = r.version; renderUpdBtn(); if (confirm(t('upd_confirm', { v: r.version }))) await api('update:install'); }
+      else { S.updAvail = null; renderUpdBtn(); toast(t('upd_none', { v: r.current }), 'ok'); }
+    } catch (e) { fail(e); }
+  },
   updSkip: async () => { try { await api('update:skip'); S.update = null; drawUpd(); } catch (e) { fail(e); } },
   updRetry: () => api('update:retry'),
   updManual: () => api('open:url', 'https://github.com/meqdad67/azureluancher/releases/latest'),
@@ -640,7 +675,9 @@ on('launch-error', ({ id, error }) => { S.err[id] = errText({ message: error });
 on('closed', async ({ id, code }) => { if (code !== 0) S.err[id] = t('game_closed', { code }); S.st = await api('state:get'); if (S.page === 'home' || S.page === 'instances') render(); else renderNav(); });
 on('win-state', () => {});
 on('pack-progress', (e) => packProgress(e));
-on('update', (u) => { S.update = u; drawUpd(); drawUpdOverlay(); });
+const renderUpdBtn = () => { const b = $('#updBtn'); if (b) { b.classList.toggle('has', !!S.updAvail); b.title = S.updAvail ? t('upd_btn_new', { v: S.updAvail }) : t('upd_btn'); } };
+on('update', (u) => { S.update = u; if (u) S.updAvail = u.version; renderUpdBtn(); drawUpd(); drawUpdOverlay(); });
+api('update:state').then((u) => { if (u) { S.updAvail = u.version; } renderUpdBtn(); }).catch(() => {});
 
 (async () => {
   S.st = await api('state:get');

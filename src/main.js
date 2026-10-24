@@ -246,6 +246,20 @@ handle('instance:delete', async (id) => {
 });
 handle('instance:select', (id) => { store.get().selectedInstance = id; store.save(); });
 handle('instance:folder', (id, sub) => { const dir = path.join(P.instanceDir(id), sub || ''); fs.mkdirSync(dir, { recursive: true }); return shell.openPath(dir); });
+// ---- Bedrock mode: opens the installed Bedrock game and keeps a library of add-on files (.mcpack/.mcaddon/.mcworld)
+const BEDROCK_DIR = path.join(P.root, 'bedrock'), BEDROCK_EXT = /\.(mcpack|mcaddon|mcworld|mctemplate)$/i;
+const bedrockList = () => { fs.mkdirSync(BEDROCK_DIR, { recursive: true }); return fs.readdirSync(BEDROCK_DIR).filter((n) => BEDROCK_EXT.test(n)).map((n) => { const st = fs.statSync(path.join(BEDROCK_DIR, n)); return { name: n, size: st.size, added: st.mtimeMs }; }).sort((a, b) => b.added - a.added); };
+const bedrockFile = (n) => { if (typeof n !== 'string' || n !== path.basename(n) || !BEDROCK_EXT.test(n)) throw new Error('bad_path'); return path.join(BEDROCK_DIR, n); };
+handle('bedrock:list', () => bedrockList());
+handle('bedrock:add', async () => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Bedrock add-ons', extensions: ['mcpack', 'mcaddon', 'mcworld', 'mctemplate'] }] });
+  if (!r.canceled) for (const f of r.filePaths) fs.copyFileSync(f, bedrockFile(path.basename(f)));
+  return bedrockList();
+});
+handle('bedrock:install', async (n) => { const err = await shell.openPath(bedrockFile(n)); if (err) throw new Error('bedrock_open_failed'); return true; });
+handle('bedrock:remove', (n) => { fs.rmSync(bedrockFile(n), { force: true }); return bedrockList(); });
+handle('bedrock:folder', () => { fs.mkdirSync(BEDROCK_DIR, { recursive: true }); return shell.openPath(BEDROCK_DIR); });
+handle('bedrock:play', async () => { try { await shell.openExternal('minecraft://'); return true; } catch { throw new Error('bedrock_missing'); } });
 handle('instance:pin', (id) => { const i = findInst(id); if (i.pinned) delete i.pinned; else i.pinned = true; store.save(); return getState(); });
 handle('instance:duplicate', async (id) => {
   const src = findInst(id);
@@ -417,6 +431,17 @@ handle('update:skip', () => {
   pending.skipped = true;
   emit('update', null);
 });
+// manual update button (titlebar): state for the badge, a real check, and "update now"
+handle('update:state', () => (pending ? { version: pending.version, skipped: !!pending.skipped, downloaded: !!pending.downloaded } : null));
+handle('update:check', async () => {
+  if (!app.isPackaged) throw new Error('update_dev'); // electron-updater only works in the installed build
+  if (anyRunning()) throw new Error('update_game_running');
+  const r = await autoUpdater.checkForUpdates();
+  const v = r && r.updateInfo && r.updateInfo.version;
+  const available = !!r && (r.isUpdateAvailable !== undefined ? !!r.isUpdateAvailable : !!v && v !== app.getVersion());
+  return { available, version: available ? v : null, current: app.getVersion() };
+});
+handle('update:install', () => { if (!pending) throw new Error('no_update'); pending.skipped = false; force(); return true; });
 handle('update:retry', () => { if (pending) { pending.downloading = false; force(); startDownload(); } });
 
 /* ---------- instance page: worlds / screenshots / files ---------- */

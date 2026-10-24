@@ -21,6 +21,7 @@ const defaults = () => ({
     shareWithServer: true,
     seeLauncherSkins: true,
     perfMode: true,
+    edition: 'java',
     noLag: false,
     closeToTray: false,
     suspendInGame: true,
