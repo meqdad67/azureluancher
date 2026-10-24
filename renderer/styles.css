@@ -446,3 +446,8 @@ body.nolag .btn.primary,body.nolag .play{background-color:var(--az)!important}
 /* ---- update button (titlebar) ---- */
 .wctl .upd{position:relative}.upd-dot{display:none;position:absolute;top:8px;inset-inline-end:8px;width:9px;height:9px;border-radius:50%;background:#ff4d5e;box-shadow:0 0 0 2px #0a1224}
 .wctl .upd.has .upd-dot{display:block}.wctl .upd.has svg{color:var(--cyan)}
+
+/* ---- Trial button (titlebar) ---- */
+.trial{margin-inline-start:8px;padding:5px 13px;border-radius:999px;font-size:12px;font-weight:800;background:#facc15;color:#241a00;border:1px solid #fde047;-webkit-app-region:no-drag;cursor:pointer}
+.trial.on{box-shadow:0 0 0 2px rgba(250,204,21,.4)}
+.btn.trial-play{background:#facc15;color:#241a00;border-color:#fde047}

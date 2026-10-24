@@ -62,9 +62,12 @@ const instIcon = (i) => (i.icon ? `<div class="inst-ic has-img" style="--h:${i.h
 
 /* ---------------- shell ---------------- */
 const isBedrock = () => S.st && S.st.settings.edition === 'bedrock';
-function renderEdition() { const b = $('#editionBtn'); if (b) b.innerHTML = `<span class="${isBedrock() ? '' : 'on'}">Java</span><span class="${isBedrock() ? 'on' : ''}">Bedrock</span>`; }
+const isTrial = () => S.st && S.st.settings.edition === 'trial';
+const isAlt = () => isBedrock() || isTrial();
+const altPage = () => (isTrial() ? 'trial' : 'bedrock');
+function renderEdition() { const b = $('#editionBtn'); if (b) b.innerHTML = `<span class="${!isAlt() ? 'on' : ''}">Java</span><span class="${isBedrock() ? 'on' : ''}">Bedrock</span>`; const tb = $('#trialBtn'); if (tb) { tb.textContent = t('tr_btn'); tb.classList.toggle('on', isTrial()); } }
 function renderNav() {
-  if (isBedrock()) { const bb = (p, i, k) => `<button class="nav-btn ${S.page === p ? 'on' : ''}" data-act="nav" data-p="${p}" title="${t(k)}">${ic(i)}</button>`; $('#nav').innerHTML = bb('bedrock', 'pack', 'bd_title') + bb('accounts', 'user', 'accounts_title') + bb('console', 'term', 'nav_console') + `<div class="nav-spacer"></div>` + bb('settings', 'gear', 'nav_settings'); return; }
+  if (isAlt()) { const bb = (p, i, k) => `<button class="nav-btn ${S.page === p ? 'on' : ''}" data-act="nav" data-p="${p}" title="${t(k)}">${ic(i)}</button>`; $('#nav').innerHTML = bb(altPage(), 'pack', isTrial() ? 'tr_title' : 'bd_title') + bb('accounts', 'user', 'accounts_title') + bb('console', 'term', 'nav_console') + `<div class="nav-spacer"></div>` + bb('settings', 'gear', 'nav_settings'); return; }
   const a = acc();
   const btn = (p, i, k) => `<button class="nav-btn ${S.page === p ? 'on' : ''}" data-act="nav" data-p="${p}" title="${t(k)}">${ic(i)}</button>`;
   $('#nav').innerHTML = `<button class="nav-avatar" data-act="nav" data-p="accounts" title="${t('nav_accounts')}">${a ? avatar(a) : '<div class="avatar">?</div>'}</button><div class="nav-sep"></div>`
@@ -74,11 +77,11 @@ function renderNav() {
     + `<div class="nav-spacer"></div><button class="nav-btn ${S.page === 'settings' ? 'on' : ''}" data-act="nav" data-p="settings" title="${t('nav_settings')}">${ic('gear')}</button>`;
 }
 function render() {
-  if (isBedrock() && !['bedrock', 'accounts', 'settings', 'console'].includes(S.page)) S.page = 'bedrock';
-  if (!isBedrock() && S.page === 'bedrock') S.page = 'home';
+  if (isAlt() && ![altPage(), 'accounts', 'settings', 'console'].includes(S.page)) S.page = altPage();
+  if (!isAlt() && (S.page === 'bedrock' || S.page === 'trial')) S.page = 'home';
   if (S.page === 'instance' && !inst()) S.page = 'instances';
   applyTheme(); renderNav(); renderEdition();
-  const p = { home: pHome, instances: pInstances, instance: pInstance, packs: pPacks, mods: pMods, accounts: pAccounts, console: pConsole, settings: pSettings, bedrock: pBedrock }[S.page]();
+  const p = { home: pHome, instances: pInstances, instance: pInstance, packs: pPacks, mods: pMods, accounts: pAccounts, console: pConsole, settings: pSettings, bedrock: pBedrock, trial: pTrial }[S.page]();
   $('#page').innerHTML = `<div id="updBar">${updHTML()}</div>` + p;
   if (S.page === 'bedrock') loadBedrock();
   if (S.page === 'console') { const c = $('#con'); if (c) c.scrollTop = c.scrollHeight; }
@@ -139,6 +142,11 @@ function pBedrock() {
   <div class="help" style="margin-bottom:22px">${t('bd_note')}</div>
   <div class="lib-tools"><div><b>${t('bd_addons')}</b></div><div class="row"><button class="btn" data-act="bdFolder">${ic('folder')} ${t('m_folder')}</button><button class="btn primary" data-act="bdAdd">${ic('plus')} ${t('bd_add')}</button></div></div>
   <div class="inst-list" id="bdList">${bedrockRows()}</div>`;
+}
+function pTrial() {
+  return `<div class="page-head"><div><h2>${t('tr_title')}</h2><p>${t('tr_sub')}</p></div><button class="btn trial-play" data-act="trialPlay">${ic('play')} ${t('tr_play')}</button></div>
+  <div class="card" style="margin-bottom:16px"><div class="row" style="justify-content:space-between;gap:16px"><div><b>${t('tr_dl_title')}</b><div class="help" style="margin:4px 0 0">${t('tr_dl_sub')}</div></div><button class="btn" data-act="trialDl">${ic('dl')} ${t('tr_download')}</button></div></div>
+  <div class="help">${t('tr_note')}</div>`;
 }
 async function loadBedrock() { try { S.bedrock.files = await api('bedrock:list'); const l = $('#bdList'); if (l && S.page === 'bedrock') l.innerHTML = bedrockRows(); } catch (e) { fail(e); } }
 const S_LIB = { q: '', sort: 'last', view: 'grid' };
@@ -552,6 +560,9 @@ const A = {
   folder: () => api('instance:folder', inst().id), folderOf: (el, e) => { e.stopPropagation(); api('instance:folder', el.dataset.id); },
   closeModal: () => { S.M = null; drawModal(); }, backdrop: (el, e) => { if (e.target === el) A.closeModal(); },
   edition: async () => { try { S.st.settings = await api('settings:set', { edition: isBedrock() ? 'java' : 'bedrock' }); S.page = isBedrock() ? 'bedrock' : 'home'; render(); } catch (e) { fail(e); } },
+  trialBtn: async () => { try { S.st.settings = await api('settings:set', { edition: isTrial() ? 'java' : 'trial' }); S.page = isTrial() ? 'trial' : 'home'; render(); } catch (e) { fail(e); } },
+  trialPlay: async () => { try { await api('bedrock:play'); toast(t('toast_bd_opened'), 'ok'); } catch (e) { fail(e); } },
+  trialDl: () => api('open:url', 'https://www.minecraft.net/download'),
   bdPlay: async () => { const a = acc(); if (!a || a.type !== 'microsoft') return toast(t('bd_need_ms'), 'err'); try { await api('bedrock:play'); toast(t('toast_bd_opened'), 'ok'); } catch (e) { fail(e); } },
   bdAdd: async () => { try { S.bedrock.files = await api('bedrock:add'); $('#bdList').innerHTML = bedrockRows(); } catch (e) { fail(e); } },
   bdFolder: () => api('bedrock:folder'),
