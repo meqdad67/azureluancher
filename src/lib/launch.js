@@ -74,6 +74,7 @@ async function launch(inst, emit, opts = {}) {
 
     progress({ key: 'auth' }, 0.12);
     const auth = await accounts.getAuth(acc);
+    const elyAgent = acc.type === 'elyby' ? await require('./authlib').agentArg() : null; // Ely.by sessions need authlib-injector
     try { await skins.prepare(inst, acc, (m) => log(m)); } catch (e) { log(`[Azure] skin step failed: ${e.message}`); }
 
     const gameDir = P.instanceDir(inst.id);
@@ -85,6 +86,7 @@ async function launch(inst, emit, opts = {}) {
     });
 
     const extraJvm = [s.jvmArgs, inst.jvmArgs].filter(Boolean).join(' ').split(/\s+/).filter(Boolean);
+    if (elyAgent) extraJvm.unshift(elyAgent);
     const useFast = s.optimizedJvm !== false && !extraJvm.some((a) => GC_FLAG.test(a));
     const rp = ram.plan({ totalMB: store.totalMB, want: inst.ram && inst.ram > 0 ? inst.ram : s.maxRam, minWant: s.minRam, lowSetting: s.lowRam, useFast });
     const { maxRam, minRam, low } = rp;

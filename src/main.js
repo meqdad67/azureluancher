@@ -124,7 +124,7 @@ else {
 app.on('window-all-closed', () => { if (suspended || anyRunning()) return; store.flush(); app.quit(); });
 
 /* ---------- state ---------- */
-const safeAccounts = () => store.get().accounts.map(({ refresh, ...a }) => ({ ...a, skinData: skins.dataUrl(a) }));
+const safeAccounts = () => store.get().accounts.map(({ refresh, token, clientToken, ...a }) => ({ ...a, skinData: skins.dataUrl(a) }));
 function getState() {
   const d = store.get();
   return {
@@ -304,6 +304,7 @@ handle('instance:repair', async (id) => {
 
 /* ---------- accounts ---------- */
 handle('account:offline', (name) => { accounts.addOffline(name); return getState(); });
+handle('account:ely', async (u, p) => { await accounts.addEly(u, p); return getState(); });
 handle('account:microsoft', async () => { await accounts.addMicrosoft(); return getState(); });
 handle('account:remove', (id) => { const a = store.get().accounts.find((x) => x.id === id); if (a) { const n = a.name; if (a.skin) azure.skinDelete(n).catch(() => {}); skins.clearSkin(a); } accounts.remove(id); return getState(); });
 const findAcc = (id) => { const a = store.get().accounts.find((x) => x.id === id); if (!a) throw new Error('account_not_found'); return a; };

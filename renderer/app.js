@@ -54,6 +54,7 @@ function applyTheme() {
 }
 function avatar(a) {
   if (a.skinData) return `<div class="avatar skin" style="background-image:url('${a.skinData}')"></div>`;
+  if (a.type === 'elyby') return `<div class="avatar">${esc(a.name[0].toUpperCase())}</div>`;
   const key = a.type === 'microsoft' ? a.uuid : a.name;
   return `<div class="avatar">${esc(a.name[0].toUpperCase())}<img src="https://mc-heads.net/avatar/${encodeURIComponent(key)}/64" alt=""></div>`;
 }
@@ -63,7 +64,7 @@ const instIcon = (i) => (i.icon ? `<div class="inst-ic has-img" style="--h:${i.h
 const isBedrock = () => S.st && S.st.settings.edition === 'bedrock';
 function renderEdition() { const b = $('#editionBtn'); if (b) b.innerHTML = `<span class="${isBedrock() ? '' : 'on'}">Java</span><span class="${isBedrock() ? 'on' : ''}">Bedrock</span>`; }
 function renderNav() {
-  if (isBedrock()) { const bb = (p, i, k) => `<button class="nav-btn ${S.page === p ? 'on' : ''}" data-act="nav" data-p="${p}" title="${t(k)}">${ic(i)}</button>`; $('#nav').innerHTML = bb('bedrock', 'pack', 'bd_title') + bb('console', 'term', 'nav_console') + `<div class="nav-spacer"></div>` + bb('settings', 'gear', 'nav_settings'); return; }
+  if (isBedrock()) { const bb = (p, i, k) => `<button class="nav-btn ${S.page === p ? 'on' : ''}" data-act="nav" data-p="${p}" title="${t(k)}">${ic(i)}</button>`; $('#nav').innerHTML = bb('bedrock', 'pack', 'bd_title') + bb('accounts', 'user', 'accounts_title') + bb('console', 'term', 'nav_console') + `<div class="nav-spacer"></div>` + bb('settings', 'gear', 'nav_settings'); return; }
   const a = acc();
   const btn = (p, i, k) => `<button class="nav-btn ${S.page === p ? 'on' : ''}" data-act="nav" data-p="${p}" title="${t(k)}">${ic(i)}</button>`;
   $('#nav').innerHTML = `<button class="nav-avatar" data-act="nav" data-p="accounts" title="${t('nav_accounts')}">${a ? avatar(a) : '<div class="avatar">?</div>'}</button><div class="nav-sep"></div>`
@@ -73,7 +74,7 @@ function renderNav() {
     + `<div class="nav-spacer"></div><button class="nav-btn ${S.page === 'settings' ? 'on' : ''}" data-act="nav" data-p="settings" title="${t('nav_settings')}">${ic('gear')}</button>`;
 }
 function render() {
-  if (isBedrock() && !['bedrock', 'settings', 'console'].includes(S.page)) S.page = 'bedrock';
+  if (isBedrock() && !['bedrock', 'accounts', 'settings', 'console'].includes(S.page)) S.page = 'bedrock';
   if (!isBedrock() && S.page === 'bedrock') S.page = 'home';
   if (S.page === 'instance' && !inst()) S.page = 'instances';
   applyTheme(); renderNav(); renderEdition();
@@ -132,7 +133,9 @@ function bedrockRows() {
     <button class="btn sm" data-act="bdInstall" data-n="${esc(x.name)}">${t('bd_install')}</button><button class="btn sm icon danger" data-act="bdRemove" data-n="${esc(x.name)}">${ic('trash')}</button></div>`).join('') : `<div class="empty"><p>${t('bd_empty')}</p></div>`;
 }
 function pBedrock() {
-  return `<div class="page-head"><div><h2>${t('bd_title')}</h2><p>${t('bd_sub')}</p></div><button class="btn primary" data-act="bdPlay">${ic('play')} ${t('bd_play')}</button></div>
+  const a = acc(), ok = !!a && a.type === 'microsoft';
+  return `<div class="page-head"><div><h2>${t('bd_title')}</h2><p>${t('bd_sub')}</p></div><button class="btn primary" data-act="bdPlay" ${ok ? '' : 'disabled'}>${ic('play')} ${t('bd_play')}</button></div>
+  ${ok ? `<div class="notice info">${t('bd_acc', { n: esc(a.name) })}</div>` : `<div class="notice"><span>${t('bd_need_ms')}</span> <button class="btn sm primary" data-act="addMs">${ic('user')} ${t('add_ms')}</button></div>`}
   <div class="help" style="margin-bottom:22px">${t('bd_note')}</div>
   <div class="lib-tools"><div><b>${t('bd_addons')}</b></div><div class="row"><button class="btn" data-act="bdFolder">${ic('folder')} ${t('m_folder')}</button><button class="btn primary" data-act="bdAdd">${ic('plus')} ${t('bd_add')}</button></div></div>
   <div class="inst-list" id="bdList">${bedrockRows()}</div>`;
@@ -413,9 +416,10 @@ async function afterInstance() {
 
 /* ---------------- accounts ---------------- */
 function pAccounts() {
-  return `<div class="page-head"><div><h2>${t('accounts_title')}</h2><p>${t('accounts_sub')}</p></div><div class="row"><button class="btn primary" data-act="addMs">${ic('user')} ${t('add_ms')}</button><button class="btn" data-act="toggleOff">${ic('plus')} ${t('add_off')}</button></div></div>
+  return `<div class="page-head"><div><h2>${t('accounts_title')}</h2><p>${t('accounts_sub')}</p></div><div class="row"><button class="btn primary" data-act="addMs">${ic('user')} ${t('add_ms')}</button><button class="btn" data-act="toggleOff">${ic('plus')} ${t('add_off')}</button><button class="btn" data-act="toggleEly">${ic('plus')} ${t('add_ely')}</button></div></div>
   <div class="notice info">${t('skin_hint')}</div>
   ${S.offlineOpen ? `<div class="card" style="margin-bottom:16px"><div class="row"><input class="input" id="offName" maxlength="16" dir="ltr" placeholder="${t('nick')}" style="max-width:300px"><button class="btn primary" data-act="addOff">${t('add')}</button></div><div class="help">${t('off_note')}</div></div>` : ''}
+  ${S.elyOpen ? `<div class="card" style="margin-bottom:16px"><div class="row wrap"><input class="input" id="elyUser" dir="ltr" autocomplete="off" placeholder="${t('ely_user')}" style="max-width:260px"><input class="input" id="elyPass" type="password" dir="ltr" autocomplete="off" placeholder="${t('ely_pass')}" style="max-width:260px"><button class="btn primary" data-act="addEly">${t('add')}</button></div><div class="help">${t('ely_note')}</div></div>` : ''}
   ${S.st.accounts.length ? S.st.accounts.map((a) => `<div class="acc-row ${a.id === S.st.selectedAccount ? 'sel' : ''}">${avatar(a)}<div class="grow"><b>${esc(a.name)}</b> <span class="chip ${a.type === 'microsoft' ? 'ok' : 'ghost'}">${t(a.type)}</span>${a.skinData ? ` <span class="chip">${t('skin_set')}</span>` : ''}</div><button class="btn sm" data-act="skinPick" data-id="${a.id}">${t('skin_choose')}</button>${a.skinData ? `<button class="btn sm" data-act="skinClear" data-id="${a.id}">${t('skin_clear')}</button>` : ''}${a.id === S.st.selectedAccount ? `<span class="chip">${ic('check')} ${t('selected')}</span>` : `<button class="btn sm" data-act="selAcc" data-id="${a.id}">${t('select')}</button>`}<button class="btn sm icon danger" data-act="delAcc" data-id="${a.id}" title="${t('remove')}">${ic('trash')}</button></div>`).join('') : `<div class="empty"><h3>${t('no_account')}</h3></div>`}`;
 }
 
@@ -548,7 +552,7 @@ const A = {
   folder: () => api('instance:folder', inst().id), folderOf: (el, e) => { e.stopPropagation(); api('instance:folder', el.dataset.id); },
   closeModal: () => { S.M = null; drawModal(); }, backdrop: (el, e) => { if (e.target === el) A.closeModal(); },
   edition: async () => { try { S.st.settings = await api('settings:set', { edition: isBedrock() ? 'java' : 'bedrock' }); S.page = isBedrock() ? 'bedrock' : 'home'; render(); } catch (e) { fail(e); } },
-  bdPlay: async () => { try { await api('bedrock:play'); toast(t('toast_bd_opened'), 'ok'); } catch (e) { fail(e); } },
+  bdPlay: async () => { const a = acc(); if (!a || a.type !== 'microsoft') return toast(t('bd_need_ms'), 'err'); try { await api('bedrock:play'); toast(t('toast_bd_opened'), 'ok'); } catch (e) { fail(e); } },
   bdAdd: async () => { try { S.bedrock.files = await api('bedrock:add'); $('#bdList').innerHTML = bedrockRows(); } catch (e) { fail(e); } },
   bdFolder: () => api('bedrock:folder'),
   bdInstall: async (el) => { try { await api('bedrock:install', el.dataset.n); toast(t('toast_bd_opened'), 'ok'); } catch (e) { fail(e); } },
@@ -576,6 +580,8 @@ const A = {
   modDel: async (el) => { await api('mods:remove', inst().id, S.mods.type, el.dataset.f); loadInstalled(); },
   addMs: async (el) => { el.disabled = true; try { S.st = await api('account:microsoft'); toast(t('toast_added'), 'ok'); } catch (e) { if (!/closed|cancel/i.test(e.message)) fail(e); } render(); },
   toggleOff: () => { S.offlineOpen = !S.offlineOpen; render(); const n = $('#offName'); if (n) n.focus(); },
+  toggleEly: () => { S.elyOpen = !S.elyOpen; render(); const n = $('#elyUser'); if (n) n.focus(); },
+  addEly: async (el) => { const u = $('#elyUser').value, p = $('#elyPass').value; if (!u.trim() || !p) return toast(t('e_ely_empty'), 'err'); el.disabled = true; try { S.st = await api('account:ely', u, p); S.elyOpen = false; toast(t('toast_added'), 'ok'); render(); } catch (e) { el.disabled = false; fail(e); } },
   addOff: async () => { const n = $('#offName').value; if (!/^[A-Za-z0-9_]{3,16}$/.test(n.trim())) return toast(t('invalid_name'), 'err'); try { S.st = await api('account:offline', n); S.offlineOpen = false; toast(t('toast_added'), 'ok'); render(); } catch (e) { fail(e); } },
   skinPick: async (el) => { try { S.st = await api('skin:pick', el.dataset.id); render(); } catch (e) { fail(e); } },
   skinClear: async (el) => { try { S.st = await api('skin:clear', el.dataset.id); render(); } catch (e) { fail(e); } },

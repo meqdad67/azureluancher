@@ -46,10 +46,38 @@ async function addMicrosoft() {
   return upsert({ id: 'ms-' + uuid, type: 'microsoft', name: mc.profile.name, uuid, refresh: enc(xbox.save()) });
 }
 
+const ELY = 'https://authserver.ely.by/auth';
+async function elyPost(p, body) {
+  const r = await fetch(ELY + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': require('./net').UA }, body: JSON.stringify(body) });
+  let j = {}; try { j = JSON.parse(await r.text()); } catch {}
+  return { status: r.status, j };
+}
+/** Ely.by account: the password is only sent to Ely.by once; the launcher keeps the access token (encrypted). With 2FA write the password as  password:123456 */
+async function addEly(username, password) {
+  username = String(username || '').trim();
+  if (!username || !password) throw new Error('ely_empty');
+  const clientToken = crypto.randomUUID();
+  const { status, j } = await elyPost('/authenticate', { username, password: String(password), clientToken, requestUser: true });
+  if (status !== 200 || !j.accessToken || !j.selectedProfile) throw new Error(/two factor/i.test(String(j.errorMessage || '')) ? 'ely_2fa' : 'ely_invalid');
+  const raw = String(j.selectedProfile.id).replace(/-/g, '');
+  const uuid = raw.replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5');
+  return upsert({ id: 'ely-' + raw, type: 'elyby', name: j.selectedProfile.name, uuid, token: enc(j.accessToken), clientToken });
+}
+
 /** Returns an MCLC-compatible authorization object. */
 async function getAuth(acc) {
   if (acc.type === 'offline') {
     return { access_token: '0', client_token: '0', uuid: acc.uuid, name: acc.name, user_properties: '{}', meta: { type: 'mojang', demo: false } };
+  }
+  if (acc.type === 'elyby') {
+    let token = dec(acc.token);
+    const v = await elyPost('/validate', { accessToken: token });
+    if (v.status !== 204 && v.status !== 200) {
+      const r = await elyPost('/refresh', { accessToken: token, clientToken: acc.clientToken });
+      if (r.status !== 200 || !r.j.accessToken) throw new Error('ely_relogin');
+      token = r.j.accessToken; acc.token = enc(token); store.save();
+    }
+    return { access_token: token, client_token: acc.clientToken, uuid: acc.uuid, name: acc.name, user_properties: '{}', meta: { type: 'mojang', demo: false } };
   }
   const { Auth } = require('msmc');
   const auth = new Auth('select_account');
@@ -68,4 +96,4 @@ function remove(id) {
   store.save();
 }
 
-module.exports = { addOffline, addMicrosoft, getAuth, remove };
+module.exports = { addOffline, addMicrosoft, addEly, getAuth, remove };
