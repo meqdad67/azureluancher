@@ -76,14 +76,20 @@ async function prepare(log) {
   const manifest = await getJson('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json');
   const v = manifest.versions.find((x) => x.id === MC);
   if (!v) throw new Error('mc_version_missing');
-  const server = (await getJson(v.url)).downloads.server;
+  const meta = await getJson(v.url);
+  // horizon-prepare wants Mojang's version json at <its folder>/.local/minecraft/26.3/manifest.json
+  const base = path.dirname(prep);
+  const mdir = path.join(base, '.local', 'minecraft', MC);
+  fs.mkdirSync(mdir, { recursive: true });
+  fs.writeFileSync(path.join(mdir, 'manifest.json'), JSON.stringify(meta));
+  const server = meta.downloads.server;
   const jar = path.join(DIR, 'server.jar');
   if (!fs.existsSync(jar)) await download(server.url, jar);
   const javaHome = path.dirname(path.dirname(java.java));
   await new Promise((resolve, reject) => execFile(prep, ['--prepare', '--server-jar', jar], {
-    cwd: DIR, windowsHide: true, maxBuffer: 1 << 24,
+    cwd: base, windowsHide: true, maxBuffer: 1 << 24,
     env: { ...process.env, HORIZON_MINECRAFT_DIR: P.mc, JAVA_HOME: javaHome, PATH: path.dirname(java.java) + path.delimiter + process.env.PATH },
-  }, (err, _o, se) => (err ? reject(new Error(String(se || err.message).slice(-300))) : resolve())));
+  }, (err, _o, se) => (err ? reject(new Error(String(se || err.message).slice(0, 400))) : resolve())));
   fs.writeFileSync(path.join(DIR, '.prepared'), String(Date.now()));
 }
 
@@ -108,7 +114,7 @@ async function launch(inst, emit) {
     const cwd = P.instanceDir(inst.id);
     fs.mkdirSync(cwd, { recursive: true });
     progress({ key: 'launching' }, 0.97);
-    const child = spawn(exe, ['--minecraft-dir', P.mc], { cwd, windowsHide: true, env: { ...process.env, HORIZON_MINECRAFT_DIR: P.mc } });
+    const child = spawn(exe, ['--minecraft-dir', P.mc], { cwd: path.dirname(exe), windowsHide: true, env: { ...process.env, HORIZON_MINECRAFT_DIR: P.mc } });
     const startedAt = Date.now();
     running.set(inst.id, child);
     inst.preparing = false;
