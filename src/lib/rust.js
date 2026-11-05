@@ -11,6 +11,7 @@ const { pipeline } = require('stream/promises');
 const { Readable } = require('stream');
 const P = require('./paths');
 const { ensureJava } = require('./java');
+const store = require('./store');
 
 const REPO = 'horizon-rust/horizon';
 const MC = '26.3';
@@ -101,6 +102,23 @@ const status = () => ({ installed: !!bin('horizon-client'), prepared: fs.existsS
 const isRunning = (id) => running.has(id);
 const stop = (id) => { const c = running.get(id); if (c) { try { c.kill(); } catch {} } };
 
+// Passes the account selected in the launcher to horizon-client (name + UUID).
+// Flag names are detected from the client's own --help output, so an unknown flag is never sent.
+function accountArgs(exe, acc) {
+  if (!acc) return { args: [], env: {} };
+  let help = '';
+  try {
+    help = require('child_process').execFileSync(exe, ['--help'], { encoding: 'utf8', timeout: 5000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) { help = String((e && e.stdout) || '') + String((e && e.stderr) || ''); }
+  const has = (f) => new RegExp('(^|[\\s,|])' + f + '(?=[\\s=,|]|$)', 'm').test(help);
+  const args = [];
+  const nameFlag = ['--username', '--player-name', '--player', '--name'].find(has);
+  const uuidFlag = ['--uuid', '--player-uuid'].find(has);
+  if (nameFlag) args.push(nameFlag, acc.name);
+  if (uuidFlag && acc.uuid) args.push(uuidFlag, acc.uuid);
+  return { args, env: { HORIZON_USERNAME: acc.name, HORIZON_UUID: acc.uuid || '' } };
+}
+
 async function launch(inst, emit) {
   if (running.has(inst.id) || inst.preparing) throw new Error('already_running');
   const state = (st) => emit('state', { id: inst.id, state: st });
@@ -118,7 +136,11 @@ async function launch(inst, emit) {
     const cwd = P.instanceDir(inst.id);
     fs.mkdirSync(cwd, { recursive: true });
     progress({ key: 'launching' }, 0.97);
-    const child = spawn(exe, ['--resources', path.join(path.dirname(exe), '.local', 'horizon-client', MC), '--game-dir', P.mc], { cwd: path.dirname(exe), windowsHide: true, env: { ...process.env, HORIZON_MINECRAFT_DIR: P.mc } });
+    const st = store.get();
+    const acc = (st.accounts || []).find((a) => a.id === st.selectedAccount);
+    const ac = accountArgs(exe, acc);
+    log(`[Azure] account: ${acc ? acc.name : 'none'} (${ac.args.length ? 'passed' : 'client has no account flag'})`);
+    const child = spawn(exe, ['--resources', path.join(path.dirname(exe), '.local', 'horizon-client', MC), '--game-dir', P.mc, ...ac.args], { cwd: path.dirname(exe), windowsHide: true, env: { ...process.env, ...ac.env, HORIZON_MINECRAFT_DIR: P.mc } });
     const startedAt = Date.now();
     running.set(inst.id, child);
     inst.preparing = false;
