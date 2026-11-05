@@ -76,12 +76,16 @@ async function prepare(log) {
   const manifest = await getJson('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json');
   const v = manifest.versions.find((x) => x.id === MC);
   if (!v) throw new Error('mc_version_missing');
-  const meta = await getJson(v.url);
-  // horizon-prepare wants Mojang's version json at <its folder>/.local/minecraft/26.3/manifest.json
+  const raw = Buffer.from(await (await fetch(v.url)).arrayBuffer());
+  const meta = JSON.parse(raw.toString('utf8'));
+  // horizon-prepare wants Mojang's version json byte-exact at <its folder>/.local/minecraft/26.3/manifest.json
   const base = path.dirname(prep);
   const mdir = path.join(base, '.local', 'minecraft', MC);
   fs.mkdirSync(mdir, { recursive: true });
-  fs.writeFileSync(path.join(mdir, 'manifest.json'), JSON.stringify(meta));
+  fs.writeFileSync(path.join(mdir, 'manifest.json'), raw);
+  const vj = path.join(P.mc, 'versions', MC, MC + '.json');
+  const have = fs.existsSync(vj) ? require('crypto').createHash('sha1').update(fs.readFileSync(vj)).digest('hex') : '';
+  if (have !== v.sha1) { fs.mkdirSync(path.dirname(vj), { recursive: true }); fs.writeFileSync(vj, raw); }
   const server = meta.downloads.server;
   const jar = path.join(DIR, 'server.jar');
   if (!fs.existsSync(jar)) await download(server.url, jar);
