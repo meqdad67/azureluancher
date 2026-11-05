@@ -29,8 +29,9 @@ Object.entries({
   list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01', search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3', close: 'M6 6l12 12M18 6L6 18',
 }).forEach(([k, v]) => { if (!IC[k]) IC[k] = v; });
 const ic = (n, fill) => `<svg viewBox="0 0 24 24"${fill ? ' style="fill:currentColor;stroke:none"' : ''}><path d="${IC[n]}"/></svg>`;
-const LOADERS = ['vanilla', 'fabric', 'legacyfabric', 'quilt', 'forge', 'neoforge', 'ornithe', 'azure'];
-const LN = { vanilla: 'Vanilla', fabric: 'Fabric', legacyfabric: 'Legacy Fabric', quilt: 'Quilt', forge: 'Forge', neoforge: 'NeoForge', ornithe: 'Ornithe', azure: 'Azure Client' };
+const LOADERS = ['vanilla', 'fabric', 'legacyfabric', 'quilt', 'forge', 'neoforge', 'ornithe', 'azure', 'rust'];
+const LN = { vanilla: 'Vanilla', fabric: 'Fabric', legacyfabric: 'Legacy Fabric', quilt: 'Quilt', forge: 'Forge', neoforge: 'NeoForge', ornithe: 'Ornithe', azure: 'Azure Client', rust: 'Rust' };
+const RUST_VERS = ['26.3']; // the Rust build exists only for this version
 const AZURE_VERS = ['1.21.11', '1.8.9']; // Azure Client has one bundled build per version
 const fmtNum = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n || 0));
 const gb = (mb) => (mb / 1024).toFixed(1).replace(/\.0$/, '') + ' GB';
@@ -212,6 +213,7 @@ async function loadLoaders(keep) {
 const filteredVersions = () => {
   const M = S.M; if (!S.versions) return [];
   const q = M.q.trim().toLowerCase();
+  if (M.loader === 'rust') return S.versions.filter((v) => RUST_VERS.includes(v.id));
   if (M.loader === 'azure') return S.versions.filter((v) => AZURE_VERS.includes(v.id)).sort((a, b) => AZURE_VERS.indexOf(a.id) - AZURE_VERS.indexOf(b.id));
   return S.versions.filter((v) => (v.type === 'release' && M.f.release) || (v.type === 'snapshot' && M.f.snapshot) || ((v.type === 'old_beta' || v.type === 'old_alpha') && M.f.old)).filter((v) => !q || v.id.toLowerCase().includes(q)).slice(0, 300);
 };
@@ -347,7 +349,7 @@ function pMods() {
 }
 function modsBody(i) {
   const m = S.mods;
-  const vanillaBlock = m.type === 'mod' && i.loader === 'vanilla';
+  const vanillaBlock = m.type === 'mod' && (i.loader === 'vanilla' || i.loader === 'rust');
   return `  <div class="toolbar tb-main"><div class="seg chips">${['mod', 'resourcepack', 'shader'].map((k) => `<button class="${m.type === k ? 'on' : ''}" data-act="modType" data-k="${k}">${t('tab_' + k)}</button>`).join('')}</div>
     <div class="seg"><button class="${m.view === 'browse' ? 'on' : ''}" data-act="modView" data-k="browse">${t('browse')}</button><button class="${m.view === 'installed' ? 'on' : ''}" data-act="modView" data-k="installed">${t('installed')}</button></div>
     ${m.view === 'browse' ? `<div class="seg"><button class="${m.source === 'modrinth' ? 'on' : ''}" data-act="modSrc" data-k="modrinth">Modrinth</button><button class="${m.source === 'curseforge' ? 'on' : ''}" data-act="modSrc" data-k="curseforge">CurseForge</button></div>` : ''}
@@ -368,7 +370,7 @@ function drawMods() {
   el.innerHTML = m.results.length ? m.results.map(modRow).join('') + (m.results.length < m.total ? `<div class="row" style="justify-content:center;margin-top:16px"><button class="btn" data-act="moreMods">${m.loading ? '<span class="spin"></span>' : t('load_more')}</button></div>` : '') : `<div class="empty"><p>${t('no_results')}</p></div>`;
 }
 async function runSearch(more) {
-  const i = inst(), m = S.mods; if (!i || (m.type === 'mod' && i.loader === 'vanilla')) { m.results = []; return drawMods(); }
+  const i = inst(), m = S.mods; if (!i || (m.type === 'mod' && (i.loader === 'vanilla' || i.loader === 'rust'))) { m.results = []; return drawMods(); }
   if (!more) { m.offset = 0; m.results = []; }
   m.loading = true; drawMods();
   try { const r = await api('mods:search', i.id, { source: m.source, type: m.type, query: m.q, offset: m.offset, sort: m.sort }); m.results = m.results.concat(r.hits); m.total = r.total; m.offset = m.results.length; }
@@ -571,7 +573,7 @@ const A = {
   libView: (el) => { S_LIB.view = el.dataset.v; render(); },
   ddToggle: () => { S.M.ddOpen = !S.M.ddOpen; drawModal(); if (S.M.ddOpen) { const q = $('#vq'); if (q) q.focus(); } },
   pickVer: (el) => { setVersion(el.dataset.id, el.dataset.type); if (S.M.mode !== 'edit') { S.M.ddOpen = false; return drawModal(); } $('#vlist').innerHTML = vlistHTML(); const ph = $('#mName'); if (ph) ph.placeholder = 'Minecraft ' + S.M.mcVersion; },
-  pickLoader: (el) => { S.M.loader = el.dataset.l; S.M.loaderVersion = ''; S.M.loaderFull = ''; if (S.M.loader === 'azure' && !AZURE_VERS.includes(S.M.mcVersion)) setVersion(AZURE_VERS[0], 'release', true); drawModal(); if (S.M.loader !== 'vanilla') loadLoaders(); },
+  pickLoader: (el) => { S.M.loader = el.dataset.l; S.M.loaderVersion = ''; S.M.loaderFull = ''; if (S.M.loader === 'azure' && !AZURE_VERS.includes(S.M.mcVersion)) setVersion(AZURE_VERS[0], 'release', true); if (S.M.loader === 'rust' && !RUST_VERS.includes(S.M.mcVersion)) setVersion(RUST_VERS[0], 'release', true); drawModal(); if (S.M.loader !== 'vanilla') loadLoaders(); },
   saveInst,
   play: async (el, e, opts) => {
     const i = inst(); if (!i) return; const st = stateOf(i.id);
@@ -701,3 +703,7 @@ api('update:state').then((u) => { if (u) { S.updAvail = u.version; } renderUpdBt
   render();
 })();
 })();
+
+// pause every animation while the launcher is in the background (saves GPU/CPU)
+window.addEventListener('blur', () => document.body.classList.add('idle'));
+window.addEventListener('focus', () => document.body.classList.remove('idle'));

@@ -423,6 +423,7 @@ body.perf .inst:hover,body.perf .card:hover,body.perf .btn:hover,body.perf .play
 .dd-panel .input{width:100%;margin-bottom:8px}.dd-panel .vlist{max-height:210px;overflow-y:auto}
 
 /* ---- No Lag: flat, no animation, no blur/gradients/shadows ---- */
+body.idle *{animation-play-state:paused!important}
 body.nolag .ambient{display:none}
 body.nolag,body.nolag *,body.nolag *::before,body.nolag *::after{animation:none!important;transition:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;box-shadow:none!important;text-shadow:none!important;filter:none!important;background-image:none!important;scroll-behavior:auto!important}
 body.nolag *:hover{transform:none!important}

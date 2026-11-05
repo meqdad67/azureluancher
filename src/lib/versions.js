@@ -46,6 +46,7 @@ function neoPrefix(mc) {
 
 async function loaderVersions(loader, mc) {
   if (loader === 'vanilla') return [];
+  if (loader === 'rust') return mc === '26.3' ? [{ id: 'latest', stable: true }] : []; // one build, only for Minecraft 26.3
   if (loader === 'azure') {
     // Azure Client: only the Minecraft versions that have a bundled mod build (see metas.AZURE).
     const k = metas.AZURE[mc];

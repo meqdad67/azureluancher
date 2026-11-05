@@ -14,6 +14,10 @@ const azure = require('./lib/azure');
 const packs = require('./lib/modpacks');
 const skins = require('./lib/skins');
 const ram = require('./lib/ram');
+const rust = require('./lib/rust');
+const _isRunning = game.isRunning, _stop = game.stop;
+game.isRunning = (id) => _isRunning(id) || rust.isRunning(id);
+game.stop = (id) => (rust.isRunning(id) ? rust.stop(id) : _stop(id));
 const { autoUpdater } = require('electron-updater');
 
 let win;
@@ -320,7 +324,8 @@ handle('account:select', (id) => { store.get().selectedAccount = id; store.save(
 /* ---------- game ---------- */
 handle('game:launch', async (id, opts) => {
   const inst = findInst(id);
-  game.launch(inst, emit, { join: !!(opts && opts.join) }).then(() => { if (store.get().settings.suspendInGame !== false) suspendLauncher(); }).catch((e) => emit('launch-error', { id, error: e.message }));
+  const p = inst.loader === 'rust' ? rust.launch(inst, emit) : game.launch(inst, emit, { join: !!(opts && opts.join) });
+  p.then(() => { if (store.get().settings.suspendInGame !== false) suspendLauncher(); }).catch((e) => emit('launch-error', { id, error: e.message }));
 });
 handle('game:stop', (id) => game.stop(id));
 
