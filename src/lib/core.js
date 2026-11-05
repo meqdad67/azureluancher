@@ -66,9 +66,9 @@ async function loadVersion(id) {
   else {
     const v = (await mcVersions()).find((x) => x.id === id);
     if (!v) throw new Error(`Version JSON not found: ${id}`);
-    json = await getJSON(v.url);
+    const raw = Buffer.from(await (await fetch(v.url)).arrayBuffer()); json = JSON.parse(raw.toString("utf8"));
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(json));
+    fs.writeFileSync(file, raw);
   }
   if (!json.inheritsFrom) { json._jarId = json.id; return json; }
   const parent = await loadVersion(json.inheritsFrom);
