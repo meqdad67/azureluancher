@@ -118,7 +118,7 @@ async function launch(inst, emit) {
     const cwd = P.instanceDir(inst.id);
     fs.mkdirSync(cwd, { recursive: true });
     progress({ key: 'launching' }, 0.97);
-    const child = spawn(exe, ['--minecraft-dir', P.mc], { cwd: path.dirname(exe), windowsHide: true, env: { ...process.env, HORIZON_MINECRAFT_DIR: P.mc } });
+    const child = spawn(exe, ['--resources', path.join(path.dirname(exe), '.local', 'horizon-client', MC), '--game-dir', P.mc], { cwd: path.dirname(exe), windowsHide: true, env: { ...process.env, HORIZON_MINECRAFT_DIR: P.mc } });
     const startedAt = Date.now();
     running.set(inst.id, child);
     inst.preparing = false;
