@@ -31,6 +31,7 @@ const defaults = () => ({
     lowRam: 'auto',
     apiUrl: '',
     apiKey: '',
+    terminalLaunch: false,
   },
   accounts: [],
   selectedAccount: null,

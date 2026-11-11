@@ -307,11 +307,71 @@ handle('skin:pick', async (id) => {
 handle('skin:clear', (id) => { const a = findAcc(id); const n = a.name; skins.clearSkin(a); azure.skinDelete(n).catch(() => {}); return getState(); });
 handle('account:select', (id) => { store.get().selectedAccount = id; store.save(); return getState(); });
 
+/* ---------- terminal launch helpers (Linux) ---------- */
+const TERMINALS = [
+  ['konsole',   (cmd) => ['konsole', ['-e', cmd]]],
+  ['gnome-terminal', (cmd) => ['gnome-terminal', ['--', 'bash', '-c', cmd]]],
+  ['xterm',     (cmd) => ['xterm', ['-e', cmd]]],
+  ['xfce4-terminal', (cmd) => ['xfce4-terminal', ['-e', cmd]]],
+  ['kitty',     (cmd) => ['kitty', ['bash', '-c', cmd]]],
+  ['alacritty', (cmd) => ['alacritty', ['-e', 'bash', '-c', cmd]]],
+  ['tilix',     (cmd) => ['tilix', ['-e', cmd]]],
+];
+
+const { execFile: _ef, spawn: _sp } = require('child_process');
+function detectTerminal() {
+  return new Promise((resolve) => {
+    let found = null, done = 0;
+    for (const [bin] of TERMINALS) {
+      _ef('which', [bin], (err, out) => {
+        if (!err && out.trim() && !found) found = bin;
+        if (++done === TERMINALS.length) resolve(found);
+      });
+    }
+  });
+}
+
+async function launchInTerminal(javaCmd, args, cwd) {
+  const full = [javaCmd, ...args.map((a) => `'${a.replace(/'/g, "'\\''")}'`)].join(' ');
+  const wrap = `${full}; echo; echo '--- اللعبة انتهت --- press Enter'; read`;
+  const term = await detectTerminal();
+  if (!term) throw new Error('no_terminal_found');
+  const entry = TERMINALS.find(([b]) => b === term);
+  const [bin, argsFn] = entry;
+  const tArgs = argsFn(wrap);
+  return new Promise((resolve, reject) => {
+    const ch = _sp(bin, tArgs.slice(1), { cwd, detached: true, stdio: 'ignore' });
+    ch.on('error', reject);
+    ch.on('spawn', resolve);
+    ch.unref();
+  });
+}
+
 /* ---------- game ---------- */
 handle('game:launch', async (id, opts) => {
   const inst = findInst(id);
-  const p = inst.loader === 'rust' ? rust.launch(inst, emit) : game.launch(inst, emit, { join: !!(opts && opts.join) });
-  p.then(() => { if (store.get().settings.suspendInGame !== false) suspendLauncher(); }).catch((e) => emit('launch-error', { id, error: e.message }));
+  const useTerminal = process.platform === 'linux' && store.get().settings.terminalLaunch;
+
+  if (useTerminal) {
+    // patch emit so we intercept the java command before spawn
+    let launched = false;
+    const patchedEmit = (ev, data) => {
+      if (ev === 'launch-cmd' && !launched) {
+        launched = true;
+        const { cmd, args, cwd } = data;
+        launchInTerminal(cmd, args, cwd)
+          .then(() => { if (store.get().settings.suspendInGame !== false) suspendLauncher(); })
+          .catch((e) => emit('launch-error', { id, error: e.message }));
+        return;
+      }
+      emit(ev, data);
+    };
+    const p = inst.loader === 'rust' ? rust.launch(inst, patchedEmit) : game.launch(inst, patchedEmit, { join: !!(opts && opts.join), terminalMode: true });
+    p.catch((e) => emit('launch-error', { id, error: e.message }));
+  } else {
+    const p = inst.loader === 'rust' ? rust.launch(inst, emit) : game.launch(inst, emit, { join: !!(opts && opts.join) });
+    p.then(() => { if (store.get().settings.suspendInGame !== false) suspendLauncher(); }).catch((e) => emit('launch-error', { id, error: e.message }));
+  }
 });
 handle('game:stop', (id) => game.stop(id));
 
