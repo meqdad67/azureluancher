@@ -14,7 +14,7 @@ const defaults = () => ({
     showSnapshots: true,
     showOld: false,
     curseforgeKey: '',
-    accent: '#2f8bff',
+    accent: '#1bd96a',
     width: 1280,
     height: 720,
     fullscreen: false,
@@ -44,6 +44,10 @@ try {
   const raw = JSON.parse(fs.readFileSync(P.data, 'utf8'));
   data = { ...data, ...raw, settings: { ...data.settings, ...(raw.settings || {}) } };
 } catch {}
+// the old default blue accent becomes the new default green
+if (data.settings.accent === '#2f8bff') data.settings.accent = '#1bd96a';
+// Azure Client mode was removed: keep those instances working as normal Fabric (Legacy Fabric on 1.8.9)
+for (const i of data.instances || []) if (i && i.loader === 'azure') i.loader = i.mcVersion === '1.8.9' ? 'legacyfabric' : 'fabric';
 
 let timer = null;
 function save() {

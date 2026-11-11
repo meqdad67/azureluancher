@@ -15,40 +15,6 @@ const versionDirs = () => {
   return fs.existsSync(d) ? fs.readdirSync(d) : [];
 };
 
-/** Azure Client (1.21.11 build): keep a Fabric API jar in the mods folder. Uses assets/fabric-api-1_21_11.jar if shipped, otherwise downloads it from Modrinth.
- *  The 1.8.9 build runs on Legacy Fabric and needs no Fabric API. */
-async function ensureFabricApi(inst, onStatus) {
-  if (metas.kindOf(inst) !== 'fabric') return;
-  const mods = path.join(P.instanceDir(inst.id), 'mods');
-  fs.mkdirSync(mods, { recursive: true });
-  if (fs.readdirSync(mods).some((n) => /^fabric-api-.*\.jar$/i.test(n))) return;
-  const dest = path.join(mods, `fabric-api-${inst.mcVersion}.jar`);
-  const bundled = path.join(__dirname, '..', '..', 'assets', `fabric-api-${inst.mcVersion.replace(/\./g, '_')}.jar`);
-  if (fs.existsSync(bundled)) { fs.copyFileSync(bundled, dest); return; }
-  onStatus({ key: 'install_loader', loader: 'azure' });
-  const vs = await getJSON(`https://api.modrinth.com/v2/project/fabric-api/version?loaders=${encodeURIComponent('["fabric"]')}&game_versions=${encodeURIComponent(JSON.stringify([inst.mcVersion]))}`);
-  const f = vs[0] && (vs[0].files.find((x) => x.primary) || vs[0].files[0]);
-  if (!f) throw new Error('fabric_api_missing');
-  await download(f.url, dest);
-}
-
-/** Azure Client: copy the bundled jar for this Minecraft version (assets/AzureClient-1_21_11.jar ...) into mods/azure-client.jar on every launch (locked, cannot be removed). */
-function ensureAzureClient(inst) {
-  const src = path.join(__dirname, '..', '..', 'assets', `AzureClient-${inst.mcVersion.replace(/\./g, '_')}.jar`);
-  if (!fs.existsSync(src)) throw new Error('azure_jar_missing');
-  const mods = path.join(P.instanceDir(inst.id), 'mods');
-  fs.mkdirSync(mods, { recursive: true });
-  const want = fs.readFileSync(src);
-  let ok = false;
-  for (const n of fs.readdirSync(mods)) {
-    if (!/^azure-client.*\.jar(\.disabled)?$/i.test(n)) continue;
-    const f = path.join(mods, n);
-    if (n === 'azure-client.jar' && fs.statSync(f).size === want.length && fs.readFileSync(f).equals(want)) ok = true; // already the right build
-    else fs.rmSync(f, { force: true });
-  }
-  if (!ok) fs.writeFileSync(path.join(mods, 'azure-client.jar'), want);
-}
-
 /** Make sure the mod loader is installed. Returns the version id MCLC should launch ("custom"), or null for vanilla. */
 async function ensureLoader(inst, javaBin, onStatus, onLine) {
   const { loader, mcVersion: mc, loaderVersion: lv } = inst;
@@ -56,7 +22,6 @@ async function ensureLoader(inst, javaBin, onStatus, onLine) {
   if (!lv) throw new Error('No loader version selected');
   ensureProfilesFile();
 
-  if (loader === 'azure' && !metas.AZURE[mc]) throw new Error('azure_unsupported');
   const kind = metas.kindOf(inst);
   if (metas.META[kind]) {
     const id = metas.loaderId(inst);
@@ -69,7 +34,6 @@ async function ensureLoader(inst, javaBin, onStatus, onLine) {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(file, JSON.stringify(json, null, 2));
     }
-    if (loader === 'azure') { await ensureFabricApi(inst, onStatus); ensureAzureClient(inst); }
     return id;
   }
 

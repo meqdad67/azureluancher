@@ -8,7 +8,7 @@ const MR = 'https://api.modrinth.com/v2';
 const CF = 'https://api.curseforge.com/v1';
 const TYPE_DIR = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks' };
 const CF_CLASS = { mod: 6, resourcepack: 12, shader: 6552 };
-const CF_LOADER = { forge: 1, fabric: 4, azure: 4, legacyfabric: 4, ornithe: 4, quilt: 4, neoforge: 6 };
+const CF_LOADER = { forge: 1, fabric: 4, legacyfabric: 4, ornithe: 4, quilt: 4, neoforge: 6 };
 
 const enc = encodeURIComponent;
 const dirFor = (inst, type) => path.join(P.instanceDir(inst.id), TYPE_DIR[type] || 'mods');
@@ -19,7 +19,6 @@ function remember(inst, type, file, info) { const m = readMeta(inst); m[`${type}
 
 function loaderList(inst) {
   if (inst.loader === 'quilt') return ['quilt', 'fabric'];
-  if (inst.loader === 'azure') return [inst.mcVersion === '1.8.9' ? 'legacy-fabric' : 'fabric'];
   if (inst.loader === 'legacyfabric') return ['legacy-fabric'];
   return [inst.loader];
 }
@@ -147,16 +146,13 @@ async function listAsync(inst, type = 'mod') {
   return rows.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-const isAzureLocked = (inst, file) => inst.loader === 'azure' && /^azure-client.*\.jar(\.disabled)?$/i.test(file);
 function toggle(inst, type, file) {
-  if (isAzureLocked(inst, file)) throw new Error('azure_locked');
   const dir = dirFor(inst, type);
   const to = file.endsWith('.disabled') ? file.slice(0, -9) : file + '.disabled';
   fs.renameSync(path.join(dir, file), path.join(dir, to));
 }
 
 function remove(inst, type, file) {
-  if (isAzureLocked(inst, file)) throw new Error('azure_locked');
   fs.rmSync(path.join(dirFor(inst, type), file), { force: true });
   const m = readMeta(inst);
   delete m[`${type}:${file.replace(/\.disabled$/, '')}`];
@@ -177,7 +173,7 @@ function addLocal(inst, type, files) {
 }
 
 const PERF_FABRIC = ['sodium', 'lithium', 'ferrite-core', 'immediatelyfast', 'entityculling', 'modernfix'];
-const PERF = { fabric: PERF_FABRIC, quilt: PERF_FABRIC, azure: PERF_FABRIC, neoforge: PERF_FABRIC, forge: ['embeddium', 'modernfix', 'ferrite-core', 'immediatelyfast', 'entityculling'] };
+const PERF = { fabric: PERF_FABRIC, quilt: PERF_FABRIC, neoforge: PERF_FABRIC, forge: ['embeddium', 'modernfix', 'ferrite-core', 'immediatelyfast', 'entityculling'] };
 /** Installs the performance mods that exist for this instance's loader + Minecraft version. */
 async function installPerf(inst, onStatus) {
   const list = PERF[inst.loader];

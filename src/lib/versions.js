@@ -47,15 +47,6 @@ function neoPrefix(mc) {
 async function loaderVersions(loader, mc) {
   if (loader === 'vanilla') return [];
   if (loader === 'rust') return mc === '26.3' ? [{ id: 'latest', stable: true }] : []; // one build, only for Minecraft 26.3
-  if (loader === 'azure') {
-    // Azure Client: only the Minecraft versions that have a bundled mod build (see metas.AZURE).
-    const k = metas.AZURE[mc];
-    if (!k) return [];
-    if (k === 'fabric') return [{ id: '0.19.5', stable: true }];
-    const l = await getJSON(`${metas.META[k].list}/${encodeURIComponent(mc)}`);
-    const x = l.find((e) => e.loader && e.loader.stable) || l[0];
-    return x ? [{ id: x.loader.version, stable: true }] : [];
-  }
   if (metas.META[loader]) {
     const l = await getJSON(`${metas.META[loader].list}/${encodeURIComponent(mc)}`);
     return l.map((x) => ({ id: x.loader.version, stable: loader === 'quilt' ? !/beta|alpha|pre/i.test(x.loader.version) : !!x.loader.stable }));

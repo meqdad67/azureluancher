@@ -2,7 +2,6 @@
 const $ = (s, r = document) => r.querySelector(s);
 const api = window.azure.invoke;
 const S = {
-  bedrock: { files: [] },
   page: 'home', st: null, versions: null, logs: [], prog: {}, states: {}, err: {},
   mods: { type: 'mod', source: 'modrinth', q: '', sort: 'relevance', results: [], total: 0, offset: 0, loading: false, view: 'browse', installed: [], busy: {} },
   news: { items: null, loading: false, err: false },
@@ -29,10 +28,9 @@ Object.entries({
   list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01', search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3', close: 'M6 6l12 12M18 6L6 18',
 }).forEach(([k, v]) => { if (!IC[k]) IC[k] = v; });
 const ic = (n, fill) => `<svg viewBox="0 0 24 24"${fill ? ' style="fill:currentColor;stroke:none"' : ''}><path d="${IC[n]}"/></svg>`;
-const LOADERS = ['vanilla', 'fabric', 'legacyfabric', 'quilt', 'forge', 'neoforge', 'ornithe', 'azure', 'rust'];
-const LN = { vanilla: 'Vanilla', fabric: 'Fabric', legacyfabric: 'Legacy Fabric', quilt: 'Quilt', forge: 'Forge', neoforge: 'NeoForge', ornithe: 'Ornithe', azure: 'Azure Client', rust: 'Rust' };
+const LOADERS = ['vanilla', 'fabric', 'legacyfabric', 'quilt', 'forge', 'neoforge', 'ornithe', 'rust'];
+const LN = { vanilla: 'Vanilla', fabric: 'Fabric', legacyfabric: 'Legacy Fabric', quilt: 'Quilt', forge: 'Forge', neoforge: 'NeoForge', ornithe: 'Ornithe', rust: 'Rust' };
 const RUST_VERS = ['26.3']; // the Rust build exists only for this version
-const AZURE_VERS = ['1.21.11', '1.8.9']; // Azure Client has one bundled build per version
 const fmtNum = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n || 0));
 const gb = (mb) => (mb / 1024).toFixed(1).replace(/\.0$/, '') + ' GB';
 const fmtTime = (s) => { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}${t('h')} ${m}${t('m')}` : `${m}${t('m')}`; };
@@ -62,13 +60,7 @@ function avatar(a) {
 const instIcon = (i) => (i.icon ? `<div class="inst-ic has-img" style="--h:${i.hue}"><img src="${i.icon}" alt=""></div>` : `<div class="inst-ic" style="--h:${i.hue}">${ic('cube')}</div>`);
 
 /* ---------------- shell ---------------- */
-const isBedrock = () => S.st && S.st.settings.edition === 'bedrock';
-const isTrial = () => S.st && S.st.settings.edition === 'trial';
-const isAlt = () => isBedrock() || isTrial();
-const altPage = () => (isTrial() ? 'trial' : 'bedrock');
-function renderEdition() { const b = $('#editionBtn'); if (b) b.innerHTML = `<span class="${!isAlt() ? 'on' : ''}">Java</span><span class="${isBedrock() ? 'on' : ''}">Bedrock</span>`; const tb = $('#trialBtn'); if (tb) { tb.textContent = t('tr_btn'); tb.classList.toggle('on', isTrial()); } }
 function renderNav() {
-  if (isAlt()) { const bb = (p, i, k) => `<button class="nav-btn ${S.page === p ? 'on' : ''}" data-act="nav" data-p="${p}" title="${t(k)}">${ic(i)}</button>`; $('#nav').innerHTML = bb(altPage(), 'pack', isTrial() ? 'tr_title' : 'bd_title') + bb('accounts', 'user', 'accounts_title') + bb('console', 'term', 'nav_console') + `<div class="nav-spacer"></div>` + bb('settings', 'gear', 'nav_settings'); return; }
   const a = acc();
   const btn = (p, i, k) => `<button class="nav-btn ${S.page === p ? 'on' : ''}" data-act="nav" data-p="${p}" title="${t(k)}">${ic(i)}</button>`;
   $('#nav').innerHTML = `<button class="nav-avatar" data-act="nav" data-p="accounts" title="${t('nav_accounts')}">${a ? avatar(a) : '<div class="avatar">?</div>'}</button><div class="nav-sep"></div>`
@@ -78,13 +70,10 @@ function renderNav() {
     + `<div class="nav-spacer"></div><button class="nav-btn ${S.page === 'settings' ? 'on' : ''}" data-act="nav" data-p="settings" title="${t('nav_settings')}">${ic('gear')}</button>`;
 }
 function render() {
-  if (isAlt() && ![altPage(), 'accounts', 'settings', 'console'].includes(S.page)) S.page = altPage();
-  if (!isAlt() && (S.page === 'bedrock' || S.page === 'trial')) S.page = 'home';
   if (S.page === 'instance' && !inst()) S.page = 'instances';
-  applyTheme(); renderNav(); renderEdition();
-  const p = { home: pHome, instances: pInstances, instance: pInstance, packs: pPacks, mods: pMods, accounts: pAccounts, console: pConsole, settings: pSettings, bedrock: pBedrock, trial: pTrial }[S.page]();
+  applyTheme(); renderNav();
+  const p = { home: pHome, instances: pInstances, instance: pInstance, packs: pPacks, mods: pMods, accounts: pAccounts, console: pConsole, settings: pSettings }[S.page]();
   $('#page').innerHTML = `<div id="updBar">${updHTML()}</div>` + p;
-  if (S.page === 'bedrock') loadBedrock();
   if (S.page === 'console') { const c = $('#con'); if (c) c.scrollTop = c.scrollHeight; }
   if (S.page === 'mods') afterMods();
   if (S.page === 'instance') afterInstance();
@@ -130,26 +119,6 @@ function paintProgress() {
 }
 
 /* ---------------- instances ---------------- */
-/* ---- Bedrock mode ---- */
-function bedrockRows() {
-  const f = S.bedrock.files;
-  return f.length ? f.map((x) => `<div class="inst row-item" style="cursor:default">${ic('pack')}<div class="grow"><h4>${esc(x.name)}</h4><div class="sub">${fmtSize(x.size)}</div></div>
-    <button class="btn sm" data-act="bdInstall" data-n="${esc(x.name)}">${t('bd_install')}</button><button class="btn sm icon danger" data-act="bdRemove" data-n="${esc(x.name)}">${ic('trash')}</button></div>`).join('') : `<div class="empty"><p>${t('bd_empty')}</p></div>`;
-}
-function pBedrock() {
-  const a = acc(), ok = !!a && a.type === 'microsoft';
-  return `<div class="page-head"><div><h2>${t('bd_title')}</h2><p>${t('bd_sub')}</p></div><button class="btn primary" data-act="bdPlay" ${ok ? '' : 'disabled'}>${ic('play')} ${t('bd_play')}</button></div>
-  ${ok ? `<div class="notice info">${t('bd_acc', { n: esc(a.name) })}</div>` : `<div class="notice"><span>${t('bd_need_ms')}</span> <button class="btn sm primary" data-act="addMs">${ic('user')} ${t('add_ms')}</button></div>`}
-  <div class="help" style="margin-bottom:22px">${t('bd_note')}</div>
-  <div class="lib-tools"><div><b>${t('bd_addons')}</b></div><div class="row"><button class="btn" data-act="bdFolder">${ic('folder')} ${t('m_folder')}</button><button class="btn primary" data-act="bdAdd">${ic('plus')} ${t('bd_add')}</button></div></div>
-  <div class="inst-list" id="bdList">${bedrockRows()}</div>`;
-}
-function pTrial() {
-  return `<div class="page-head"><div><h2>${t('tr_title')}</h2><p>${t('tr_sub')}</p></div><button class="btn trial-play" data-act="trialPlay">${ic('play')} ${t('tr_play')}</button></div>
-  <div class="card" style="margin-bottom:16px"><div class="row" style="justify-content:space-between;gap:16px"><div><b>${t('tr_dl_title')}</b><div class="help" style="margin:4px 0 0">${t('tr_dl_sub')}</div></div><button class="btn" data-act="trialDl">${ic('dl')} ${t('tr_download')}</button></div></div>
-  <div class="help">${t('tr_note')}</div>`;
-}
-async function loadBedrock() { try { S.bedrock.files = await api('bedrock:list'); const l = $('#bdList'); if (l && S.page === 'bedrock') l.innerHTML = bedrockRows(); } catch (e) { fail(e); } }
 const S_LIB = { q: '', sort: 'last', view: 'grid' };
 const agoText = (ts) => {
   if (!ts) return t('lib_never');
@@ -214,7 +183,6 @@ const filteredVersions = () => {
   const M = S.M; if (!S.versions) return [];
   const q = M.q.trim().toLowerCase();
   if (M.loader === 'rust') return S.versions.filter((v) => RUST_VERS.includes(v.id));
-  if (M.loader === 'azure') return S.versions.filter((v) => AZURE_VERS.includes(v.id)).sort((a, b) => AZURE_VERS.indexOf(a.id) - AZURE_VERS.indexOf(b.id));
   return S.versions.filter((v) => (v.type === 'release' && M.f.release) || (v.type === 'snapshot' && M.f.snapshot) || ((v.type === 'old_beta' || v.type === 'old_alpha') && M.f.old)).filter((v) => !q || v.id.toLowerCase().includes(q)).slice(0, 300);
 };
 const vlistHTML = () => { if (!S.versions) return `<div class="empty"><span class="spin"></span></div>`; return filteredVersions().map((v) => `<button class="vitem ${v.id === S.M.mcVersion ? 'on' : ''}" data-act="pickVer" data-id="${esc(v.id)}" data-type="${v.type}"><span>${esc(v.id)}</span><small>${v.type === 'release' ? '' : v.type === 'snapshot' ? t('t_snapshot') : t('t_old')}</small></button>`).join(''); };
@@ -386,7 +354,7 @@ function pInstance() {
   const i = inst(); if (!i) return '';
   const stt = stateOf(i.id);
   const last = i.lastPlayed ? new Date(i.lastPlayed).toLocaleDateString(lang() === 'ar' ? 'ar' : 'en', { day: 'numeric', month: 'short' }) : t('never');
-  const tabs = [['content', 'mods'], ['worlds', 'world'], ['gallery', 'image'], ['files', 'folder']];
+  const tabs = [['content', 'mods'], ['versions', 'pack'], ['worlds', 'world'], ['gallery', 'image'], ['files', 'folder']];
   return `<div style="margin-bottom:14px"><button class="back-link" data-act="backInst">${ic('back')} ${t('inst_back')}</button></div>
   <div class="card inst-head">${instIcon(i).replace('class="inst-ic', 'class="inst-ic big')}
     <div class="grow"><div class="row wrap" style="gap:8px;margin-bottom:6px"><span class="chip ghost">${LN[i.loader]}${i.loaderVersion ? ' ' + esc(i.loaderVersion) : ''}</span><span class="chip">MC ${esc(i.mcVersion)}</span></div><h2>${esc(i.name)}</h2></div>
@@ -406,6 +374,7 @@ const fmtSize = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b >= 1
 async function afterInstance() {
   const i = inst(); if (!i) return;
   if (S.tab === 'content') return afterMods();
+  if (S.tab === 'versions') return drawVersionsTab();
   const tab = S.tab, el = $('#itab'); if (!el) return;
   try {
     let html = '';
@@ -422,6 +391,39 @@ async function afterInstance() {
     }
     if (S.tab === tab && $('#itab')) $('#itab').innerHTML = html;
   } catch (e) { fail(e); }
+}
+
+/* ---------------- versions tab ---------------- */
+if (!S.verTab) S.verTab = { instances: {}, editing: null, newName: '', newVer: '' };
+
+function drawVersionsTab() {
+  const i = inst(); const el = $('#itab'); if (!i || !el) return;
+  const vt = S.verTab;
+  const vers = (vt.instances[i.id] = vt.instances[i.id] || []);
+  el.innerHTML = versionsTabHTML(i, vers);
+}
+
+function versionsTabHTML(i, vers) {
+  const vt = S.verTab;
+  const rows = vers.length ? vers.map((v, idx) => {
+    const mods = (v.mods || []);
+    return `<div class="ver-card">
+      <div class="ver-card-head">
+        <div class="ver-ic">${ic('pack')}</div>
+        <div class="ver-info"><b>${esc(v.name)}</b><span class="sub">${esc(v.mcVersion || i.mcVersion)} · ${mods.length} ${t('mods_count')}</span></div>
+        <div class="ver-actions">
+          <button class="btn sm" data-act="verOpenFolder" data-idx="${idx}">${ic('folder')} ${t('open_folder')}</button>
+          <button class="btn sm primary" data-act="verAddMod" data-idx="${idx}">${ic('plus')} ${t('add_mod')}</button>
+          <button class="btn sm icon ghost" data-act="verMenu" data-idx="${idx}">${ic('more')}</button>
+        </div>
+      </div>
+      ${mods.length ? `<div class="ver-mods">${mods.map((m, mi) => `<div class="mod-row"><div class="mod-ic">${ic('mods')}</div><div class="mod-info"><b>${esc(m.name)}</b><span class="sub">${esc(m.version || '')}</span></div><button class="btn sm icon danger" data-act="verDelMod" data-idx="${idx}" data-mi="${mi}">${ic('trash')}</button></div>`).join('')}</div>` : `<div class="empty" style="padding:10px 0"><p>${t('no_mods_in_ver')}</p></div>`}
+    </div>`;
+  }).join('') : `<div class="empty"><p>${t('no_versions')}</p></div>`;
+
+  return `<div class="toolbar" style="margin-bottom:12px">
+    <button class="btn primary" data-act="verNew">${ic('plus')} ${t('new_version')}</button>
+  </div>${rows}`;
 }
 
 /* ---------------- accounts ---------------- */
@@ -453,7 +455,7 @@ function pSettings() {
     <div class="field"><label class="f">${t('java_path')}</label><div class="row"><input class="input" dir="ltr" readonly value="${esc(s.javaPath || '')}" placeholder="${t('java_auto_desc')}"><button class="btn sm" data-act="pickJava">${t('browse_btn')}</button>${s.javaPath ? `<button class="btn sm" data-act="clearJava">${t('clear')}</button>` : ''}</div></div>
     <div class="field"><label class="f">${t('jvm_args')}</label><input class="input" dir="ltr" value="${esc(s.jvmArgs)}" data-ch="setText" data-k="jvmArgs" placeholder="-XX:+UseG1GC -XX:+UnlockExperimentalVMOptions"></div></div>
   <div class="side-stack"><div class="card"><h3>${t('language')}</h3><div class="seg"><button class="${s.language === 'ar' ? 'on' : ''}" data-act="setLang" data-l="ar">العربية</button><button class="${s.language === 'en' ? 'on' : ''}" data-act="setLang" data-l="en">English</button></div>
-    <h3 style="margin-top:20px">${t('accent')}</h3><div class="swatches">${['#2f8bff', '#38e1ff', '#7c6cff', '#3ddc97', '#ff7a59', '#ff5fa2'].map((c) => `<button class="sw ${s.accent === c ? 'on' : ''}" style="background:${c}" data-act="setAccent" data-c="${c}" aria-label="${c}"></button>`).join('')}</div></div>
+    <h3 style="margin-top:20px">${t('accent')}</h3><div class="swatches">${['#1bd96a', '#2f8bff', '#38e1ff', '#7c6cff', '#ff7a59', '#ff5fa2'].map((c) => `<button class="sw ${s.accent === c ? 'on' : ''}" style="background:${c}" data-act="setAccent" data-c="${c}" aria-label="${c}"></button>`).join('')}</div></div>
   <div class="card"><h3>${t('game')}</h3>${sw('fullscreen', t('fullscreen'))}${sw('suspendInGame', t('suspend_in_game'))}${sw('optimizedJvm', t('opt_jvm'))}${sw('highPerfGpu', t('high_gpu'))}${sw('ultraLight', t('ultra_light'))}${sw('showSnapshots', t('show_snapshots'))}${sw('showOld', t('show_old'))}${sw('shareWithServer', t('share_server'))}${sw('closeToTray', t('close_to_tray'))}<div class="help">${t('close_to_tray_help')}</div>${sw('perfMode', t('perf_mode'))}<div class="help">${t('perf_help')}</div>${sw('noLag', t('no_lag'))}<div class="help">${t('no_lag_help')}</div>${sw('seeLauncherSkins', t('see_skins'))}<div class="help">${t('see_skins_help')}</div><div class="help">${t('share_help')}</div>
     ${s.fullscreen ? '' : `<div class="set-line"><span>${t('resolution')}</span><div class="row" dir="ltr"><input class="input" style="width:88px" type="number" value="${s.width}" data-ch="setNum" data-k="width"><span>×</span><input class="input" style="width:88px" type="number" value="${s.height}" data-ch="setNum" data-k="height"></div></div>`}</div>
   <div class="card"><h3>${t('integrations')}</h3><label class="f">${t('cf_key')}</label><input class="input" type="password" dir="ltr" value="${esc(s.curseforgeKey)}" data-ch="setText" data-k="curseforgeKey"><div class="help">${t('cf_key_help')}</div>
@@ -483,8 +485,8 @@ async function loadNews() {
 /* ---------------- server card / updates / packs ---------------- */
 function srvCardHTML() {
   const s = S.srv, on = s && s.server && s.server.online;
-  return `<div class="srv-row" id="srvCard"><img class="srv-ic" src="../build/icon.png" alt=""><div class="grow"><div class="srv-name"><b>${esc(s ? s.name : 'AzureSMP')}</b><span class="chip ${on ? 'ok' : 'ghost'}">${s ? (on ? t('srv_online') : t('srv_offline')) : t('srv_checking')}</span></div>
-    <div class="sub dim" dir="ltr">${esc(s ? s.host : 'AzureSMP.asrv.qzz.io')}</div>
+  return `<div class="srv-row" id="srvCard"><img class="srv-ic" src="${esc(s && s.server && s.server.icon ? s.server.icon : '../build/icon.png')}" alt=""><div class="grow"><div class="srv-name"><b>${esc(s ? s.name : 'AzureTiers')}</b><span class="chip ${on ? 'ok' : 'ghost'}">${s ? (on ? t('srv_online') : t('srv_offline')) : t('srv_checking')}</span></div>
+    <div class="sub dim" dir="ltr">${esc(s ? s.host : 'AzureTiers.min3.lol')}</div>
     <div class="sub">${on ? s.server.players.online + '/' + s.server.players.max + ' ' + t('srv_players') : ''}${s && s.launcher ? ' · ' + s.launcher.open + ' ' + t('srv_launcher') : ''}</div></div>
     <div class="srv-act"><button class="btn sm" data-act="srvCopy">${t('srv_copy')}</button><button class="btn primary sm" data-act="srvJoin">${t('srv_join')}</button></div></div>`;
 }
@@ -561,19 +563,10 @@ const A = {
   delInst: async (el, e) => { e.stopPropagation(); const i = S.st.instances.find((x) => x.id === el.dataset.id); if (!confirm(t('confirm_delete', { name: i.name }))) return; try { S.st = await api('instance:delete', i.id); if (S.M) { S.M = null; drawModal(); } render(); } catch (er) { fail(er); } },
   folder: () => api('instance:folder', inst().id), folderOf: (el, e) => { e.stopPropagation(); api('instance:folder', el.dataset.id); },
   closeModal: () => { S.M = null; drawModal(); }, backdrop: (el, e) => { if (e.target === el) A.closeModal(); },
-  edition: async () => { try { S.st.settings = await api('settings:set', { edition: isBedrock() ? 'java' : 'bedrock' }); S.page = isBedrock() ? 'bedrock' : 'home'; render(); } catch (e) { fail(e); } },
-  trialBtn: async () => { try { S.st.settings = await api('settings:set', { edition: isTrial() ? 'java' : 'trial' }); S.page = isTrial() ? 'trial' : 'home'; render(); } catch (e) { fail(e); } },
-  trialPlay: async () => { try { await api('bedrock:play'); toast(t('toast_bd_opened'), 'ok'); } catch (e) { fail(e); } },
-  trialDl: () => api('open:url', 'https://www.minecraft.net/download'),
-  bdPlay: async () => { const a = acc(); if (!a || a.type !== 'microsoft') return toast(t('bd_need_ms'), 'err'); try { await api('bedrock:play'); toast(t('toast_bd_opened'), 'ok'); } catch (e) { fail(e); } },
-  bdAdd: async () => { try { S.bedrock.files = await api('bedrock:add'); $('#bdList').innerHTML = bedrockRows(); } catch (e) { fail(e); } },
-  bdFolder: () => api('bedrock:folder'),
-  bdInstall: async (el) => { try { await api('bedrock:install', el.dataset.n); toast(t('toast_bd_opened'), 'ok'); } catch (e) { fail(e); } },
-  bdRemove: async (el) => { if (!confirm(t('bd_confirm_rm', { name: el.dataset.n }))) return; try { S.bedrock.files = await api('bedrock:remove', el.dataset.n); $('#bdList').innerHTML = bedrockRows(); } catch (e) { fail(e); } },
   libView: (el) => { S_LIB.view = el.dataset.v; render(); },
   ddToggle: () => { S.M.ddOpen = !S.M.ddOpen; drawModal(); if (S.M.ddOpen) { const q = $('#vq'); if (q) q.focus(); } },
   pickVer: (el) => { setVersion(el.dataset.id, el.dataset.type); if (S.M.mode !== 'edit') { S.M.ddOpen = false; return drawModal(); } $('#vlist').innerHTML = vlistHTML(); const ph = $('#mName'); if (ph) ph.placeholder = 'Minecraft ' + S.M.mcVersion; },
-  pickLoader: (el) => { S.M.loader = el.dataset.l; S.M.loaderVersion = ''; S.M.loaderFull = ''; if (S.M.loader === 'azure' && !AZURE_VERS.includes(S.M.mcVersion)) setVersion(AZURE_VERS[0], 'release', true); if (S.M.loader === 'rust' && !RUST_VERS.includes(S.M.mcVersion)) setVersion(RUST_VERS[0], 'release', true); drawModal(); if (S.M.loader !== 'vanilla') loadLoaders(); },
+  pickLoader: (el) => { S.M.loader = el.dataset.l; S.M.loaderVersion = ''; S.M.loaderFull = ''; if (S.M.loader === 'rust' && !RUST_VERS.includes(S.M.mcVersion)) setVersion(RUST_VERS[0], 'release', true); drawModal(); if (S.M.loader !== 'vanilla') loadLoaders(); },
   saveInst,
   play: async (el, e, opts) => {
     const i = inst(); if (!i) return; const st = stateOf(i.id);
@@ -603,6 +596,64 @@ const A = {
   openInst: async (el) => { const id = el.dataset.id; await api('instance:select', id); S.st.selectedInstance = id; S.mods.results = []; S.mods.view = 'installed'; S.mods.q = ''; S.tab = 'content'; S.sub = ''; S.page = 'instance'; render(); },
   backInst: () => { S.page = 'instances'; render(); },
   instTab: (el) => { S.tab = el.dataset.k; S.sub = ''; render(); },
+  verNew: () => {
+    const i = inst(); if (!i) return;
+    if (!S.verTab.instances[i.id]) S.verTab.instances[i.id] = [];
+    const name = prompt(t('ver_name_prompt'), 'v' + (S.verTab.instances[i.id].length + 1) + '.0');
+    if (!name) return;
+    S.verTab.instances[i.id].push({ name: name.trim(), mcVersion: i.mcVersion, mods: [] });
+    drawVersionsTab();
+  },
+  verAddMod: (el) => {
+    const i = inst(); if (!i) return;
+    const vers = S.verTab.instances[i.id] || []; const v = vers[+el.dataset.idx]; if (!v) return;
+    const name = prompt(t('mod_name_prompt'));
+    if (!name) return;
+    const ver = prompt(t('mod_ver_prompt'), '');
+    v.mods.push({ name: name.trim(), version: (ver || '').trim() });
+    drawVersionsTab();
+  },
+  verDelMod: (el) => {
+    const i = inst(); if (!i) return;
+    const vers = S.verTab.instances[i.id] || []; const v = vers[+el.dataset.idx]; if (!v) return;
+    v.mods.splice(+el.dataset.mi, 1); drawVersionsTab();
+  },
+  verOpenFolder: (el) => {
+    const i = inst(); if (!i) return;
+    api('instance:folder', i.id);
+  },
+  verMenu: (el, e) => {
+    e.stopPropagation();
+    const i = inst(); if (!i) return;
+    const idx = +el.dataset.idx;
+    const was = $('.ctx-menu') && $('.ctx-menu').dataset.verIdx === String(idx); closeMenu(); if (was) return;
+    const m = document.createElement('div'); m.className = 'ctx-menu'; m.dataset.verIdx = idx;
+    m.innerHTML =
+      `<button class="ctx-item" data-act="verEdit" data-idx="${idx}">${ic('edit')} ${t('m_settings')}</button>` +
+      `<div class="ctx-sep"></div>` +
+      `<button class="ctx-item danger" data-act="verDelete" data-idx="${idx}">${ic('trash')} ${t('m_delete')}</button>`;
+    const r = el.getBoundingClientRect();
+    m.style.position = 'fixed';
+    m.style.top = r.bottom + 4 + 'px';
+    m.style.left = r.left + 'px';
+    m.style.zIndex = 1000;
+    document.body.appendChild(m);
+  },
+  verEdit: (el) => {
+    closeMenu();
+    const i = inst(); if (!i) return;
+    const vers = S.verTab.instances[i.id] || []; const v = vers[+el.dataset.idx]; if (!v) return;
+    const name = prompt(t('ver_name_prompt'), v.name);
+    if (name) v.name = name.trim();
+    drawVersionsTab();
+  },
+  verDelete: (el) => {
+    closeMenu();
+    const i = inst(); if (!i) return;
+    const vers = S.verTab.instances[i.id] || [];
+    if (!confirm(t('confirm_delete', { name: (vers[+el.dataset.idx] || {}).name || '' }))) return;
+    vers.splice(+el.dataset.idx, 1); drawVersionsTab();
+  },
   instOpen: (el, e) => { e.stopPropagation(); const i = inst(); if (i) api('inst:open', i.id, el.dataset.p || ''); },
   filesGo: (el) => { S.sub = el.dataset.p || ''; afterInstance(); },
   quickPlay: async (el, e) => { const id = el.dataset.id; await api('instance:select', id); S.st.selectedInstance = id; render(); A.play(el, e); },
@@ -617,7 +668,7 @@ const A = {
     el.disabled = false; if (S.mods.view === 'installed') loadInstalled();
   },
   modRefresh: () => { if (S.mods.view === 'installed') loadInstalled(); else runSearch(); },
-  srvCopy: () => { navigator.clipboard.writeText('AzureSMP.asrv.qzz.io'); toast(t('srv_copied'), 'ok'); },
+  srvCopy: () => { navigator.clipboard.writeText((S.srv && S.srv.host) || 'AzureTiers.min3.lol'); toast(t('srv_copied'), 'ok'); },
   srvJoin: (el, e) => A.play(el, e, { join: true }),
   updBtn: async () => {
     try {
@@ -668,11 +719,31 @@ const I = {
   ramMax: (el) => { el.style.setProperty('--p', (el.value / ramCap()) * 100 + '%'); $('#ramV').firstChild.textContent = gb(Number(el.value)); $('#ramWarn').style.display = el.value > ramCap() ? '' : 'none'; },
   ramMin: (el) => { el.style.setProperty('--p', (el.value / el.max) * 100 + '%'); $('#ramMinV').textContent = gb(Number(el.value)); },
 };
-document.addEventListener('click', (e) => { if (!e.target.closest('.ctx-menu') && !e.target.closest('[data-act="instMenu"]')) closeMenu(); const el = e.target.closest('[data-act]'); if (el && A[el.dataset.act]) A[el.dataset.act](el, e); });
+document.addEventListener('click', (e) => { if (!e.target.closest('.ctx-menu') && !e.target.closest(`[data-act="instMenu"]`) && !e.target.closest(`[data-act="verMenu"]`)) closeMenu(); const el = e.target.closest('[data-act]'); if (el && A[el.dataset.act]) A[el.dataset.act](el, e); });
 document.addEventListener('change', (e) => { const el = e.target.closest('[data-ch]'); if (el && C[el.dataset.ch]) C[el.dataset.ch](el, e); });
 document.addEventListener('input', (e) => { const el = e.target.closest('[data-in]'); if (el && I[el.dataset.in]) I[el.dataset.in](el, e); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'mq') runSearch(); if (e.key === 'Enter' && e.target.id === 'offName') A.addOff(); if (e.key === 'Escape') { if ($('.ctx-menu')) closeMenu(); else if (S.IC) closeIconDlg(); else if (S.M) A.closeModal(); } });
 window.addEventListener('blur', closeMenu); window.addEventListener('resize', closeMenu); document.addEventListener('scroll', closeMenu, true);
+document.addEventListener('contextmenu', (e) => {
+  const btn = e.target.closest('.nav-inst');
+  if (!btn) return;
+  e.preventDefault();
+  const id = btn.dataset.id;
+  const was = $('.ctx-menu') && $('.ctx-menu').dataset.id === id; closeMenu(); if (was) return;
+  const m = document.createElement('div'); m.className = 'ctx-menu'; m.dataset.id = id;
+  const instObj = S.st.instances.find((x) => x.id === id);
+  m.innerHTML =
+    `<button class="ctx-item" data-act="mSettings" data-id="${id}">${ic('gear')} ${t('m_settings')}</button>` +
+    `<button class="ctx-item" data-act="mFolder" data-id="${id}">${ic('folder')} ${t('m_folder')}</button>` +
+    `<div class="ctx-sep"></div>` +
+    `<button class="ctx-item danger" data-act="mDel" data-id="${id}">${ic('trash')} ${t('m_delete')}</button>`;
+  const r = btn.getBoundingClientRect();
+  m.style.position = 'fixed';
+  m.style.top = r.bottom + 4 + 'px';
+  m.style.left = r.left + 'px';
+  m.style.zIndex = 1000;
+  document.body.appendChild(m);
+});
 document.addEventListener('error', (e) => { if (e.target.tagName === 'IMG') e.target.style.visibility = 'hidden'; }, true);
 
 /* ---------------- events from main ---------------- */

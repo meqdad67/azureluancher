@@ -6,7 +6,10 @@ const crypto = require('crypto');
 const store = require('./store');
 const { UA } = require('./net');
 
-const SERVER = { name: 'AzureSMP', host: 'AzureSMP.asrv.qzz.io', port: 20012, apiPort: 20903 }; // port = Minecraft, apiPort = AzureLauncherLink (UDP)
+const SERVER = { name: 'AzureTiers', host: 'AzureTiers.min3.lol', port: 25565, apiPort: 20903 }; // port = Minecraft, apiPort = AzureLauncherLink (UDP)
+
+/** The server's own icon (server-icon.png), sent in the ping as a PNG data URI; only that exact shape is accepted. */
+const ICON_RE = /^data:image\/png;base64,[A-Za-z0-9+\/]{20,150000}={0,2}$/;
 
 const varint = (n) => { const b = []; do { let x = n & 0x7f; n >>>= 7; if (n) x |= 0x80; b.push(x); } while (n); return Buffer.from(b); };
 const readVarint = (buf, off) => { let r = 0, s = 0, b; do { if (off >= buf.length) return null; b = buf[off++]; r |= (b & 0x7f) << s; s += 7; } while (b & 0x80); return [r, off]; };
@@ -40,7 +43,7 @@ async function ping(timeout = 5000) {
       const sl = readVarint(buf, id[1]);
       try {
         const j = JSON.parse(buf.slice(sl[1], sl[1] + sl[0]).toString('utf8'));
-        fin(null, { online: true, latency: Date.now() - start, players: { online: j.players ? j.players.online : 0, max: j.players ? j.players.max : 0 }, version: j.version ? j.version.name : '', motd: flat(j.description).replace(/§./g, '') });
+        fin(null, { online: true, latency: Date.now() - start, players: { online: j.players ? j.players.online : 0, max: j.players ? j.players.max : 0 }, version: j.version ? j.version.name : '', motd: flat(j.description).replace(/§./g, ''), icon: ICON_RE.test(j.favicon || '') ? j.favicon : '' });
       } catch (e) { fin(e); }
     });
   });
