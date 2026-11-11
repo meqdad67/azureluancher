@@ -2,7 +2,7 @@ name: Auto release from update zip
 on:
   push:
     paths:
-      - 'azure-update-*.zip'
+      - 'AzLuP-v*.zip'
 
 permissions:
   contents: write
