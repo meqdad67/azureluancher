@@ -18,8 +18,8 @@ jobs:
           node-version: 20
       - name: Apply update
         run: |
-          unzip -o azure-update-29.zip
-          rm -f azure-update-*.zip
+          unzip -o AzLuP-v1.zip
+          rm -f AzLuP-v1.zip
           npm version 1.1.8 --no-git-tag-version --allow-same-version
       - name: Commit and tag
         run: |
