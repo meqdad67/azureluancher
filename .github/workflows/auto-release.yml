@@ -2,7 +2,7 @@ name: Auto release from update zip
 on:
   push:
     paths:
-      - 'AzLuP-v*.zip'
+      - 'AzLuP-v1.zip'
 
 permissions:
   contents: write
